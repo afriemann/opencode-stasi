@@ -1,6 +1,7 @@
 import { Plugin } from "@opencode/plugin"
 import { dirname, join } from "node:path"
 import { defaultConfigPath, defaultDbPath, loadConfig } from "./config-file.ts"
+import { createLogger } from "./logger.ts"
 import { createGit } from "./git/git.ts"
 import { createCaptureHook } from "./host/capture.ts"
 import { createLineageCheck } from "./host/lineage.ts"
@@ -17,23 +18,25 @@ import { openStore } from "./store/repo.ts"
 const PLUGIN_ID = "opencode-stasi"
 const MINUTE_MS = 60_000
 
-const log = (message: string, error?: unknown): void => {
-  const detail = error === undefined ? "" : `: ${error instanceof Error ? error.message : String(error)}`
-  process.stderr.write(`[${PLUGIN_ID}] ${message}${detail}\n`)
-}
-
 export default Plugin.define({
   id: PLUGIN_ID,
   async setup(ctx) {
+    const logger = createLogger()
+    const log = logger.error
+    const info = logger.info
+    info("loading")
     const options = (ctx.options ?? {}) as { configPath?: unknown }
     const configPath = typeof options.configPath === "string" ? options.configPath : defaultConfigPath()
     const loaded = await loadConfig(configPath)
     if (!loaded.ok) return void log(`disabled: ${loaded.error}`)
     const config = loaded.config
+    info(`configuration loaded from ${configPath} (missing file means defaults); threshold ${config.threshold}, window ${config.windowSize}, minSamples ${config.minSamples}, samplingRate ${config.samplingRate}`)
+    info(config.agentConfigRepo === undefined ? "agentConfigRepo unset: tripped agents stay notify-only" : "agentConfigRepo set: improvement passes enabled")
 
     const dbPath = config.dbPath ?? defaultDbPath()
     const store = await openStore(dbPath).catch((error: unknown) => void log("disabled: cannot open the ratings database", error))
     if (!store) return
+    info(`ratings database open at ${dbPath}`)
 
     const now = () => Date.now()
     const port = asHostPort(ctx)
@@ -64,16 +67,17 @@ export default Plugin.define({
       now,
       log,
       builtinTunerEnabled: config.pass.agent === undefined,
+      info,
     })
     const startPasses = () => void runner.drain().catch((error: unknown) => log("improvement pass failed", error))
 
-    const toolDeps = { store, config, now, onTripped: startPasses }
+    const toolDeps = { store, config, now, onTripped: startPasses, info }
     await registerTools(port, [
       rateSubagentTool(toolDeps),
       subagentRatingsTool(toolDeps),
       subagentTuningResolveTool({ store, config, git, now, isRootOutsidePass }),
     ])
-    await ctx.tool.hook("execute.after", createCaptureHook({ port, store, config, inPassLineage, now, log }) as never)
+    await ctx.tool.hook("execute.after", createCaptureHook({ port, store, config, inPassLineage, now, log, info }) as never)
 
     if (config.pass.agent === undefined) await registerBuiltinTuner(ctx.agent, BUILTIN_TUNER_ID, config.pass.tools)
 
@@ -96,8 +100,10 @@ export default Plugin.define({
     const stop = new AbortController()
     void passHost.watchEvents(stop.signal)
     startPasses()
+    info(`ready: tools rate_subagent, subagent_ratings, subagent_tuning_resolve registered; tuner ${config.pass.agent ?? BUILTIN_TUNER_ID}`)
 
     return () => {
+      info("unloading")
       stop.abort()
       store.close()
     }

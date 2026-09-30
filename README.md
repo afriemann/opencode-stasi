@@ -17,6 +17,14 @@ Add the package to your opencode configuration (`plugins` array of `opencode.jso
 { "plugins": ["opencode-stasi"] }
 ```
 
+A local checkout must be given as an absolute path to a *directory* that contains `server.js` (the build output directory `dist`, after `npm run build`); a path to the file itself is rejected by the host.
+
+```jsonc
+{ "plugins": ["/path/to/opencode-stasi/dist"] }
+```
+
+Logs: the plugin writes lines prefixed `[opencode-stasi]` to stderr, which opencode captures in its own log (`message="[opencode-stasi] ..."`). On load it logs the configuration source, whether `agentConfigRepo` is set, the database location and the registered tools; later it logs each rating request, rating, trip and pass outcome.
+
 Create the configuration file (see below). Without `agentConfigRepo` the plugin still collects ratings and reports trips, but starts no tuning pass ("notify-only").
 
 ## Tools

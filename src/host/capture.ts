@@ -14,6 +14,7 @@ export interface CaptureDeps {
   readonly inPassLineage: (sessionId: string) => Promise<boolean>
   readonly now: () => number
   readonly log: (message: string, error?: unknown) => void
+  readonly info?: (message: string) => void
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
@@ -52,6 +53,7 @@ export function createCaptureHook(deps: CaptureDeps): (event: ToolAfterEvent) =>
         createdAt: deps.now(),
       })
       appendLine(event.result, ratingRequestLine(event.id))
+      deps.info?.(`rating requested: call ${event.id} to ${data.id}`)
     } catch (error) {
       deps.log("capture hook failed", error)
     }

@@ -48,6 +48,7 @@ export interface PassDeps {
   readonly worktreeRoot: string
   readonly now: () => number
   readonly log: (message: string) => void
+  readonly info?: (message: string) => void
   /** Whether the plugin registered its built-in tuner (only when `pass.agent` is unset). */
   readonly builtinTunerEnabled: boolean
   readonly pollMs?: number
@@ -102,8 +103,11 @@ export function createPassRunner(deps: PassDeps) {
     const passId = store.startPass({ agentId, agentVersion: version, tunerId, tunerVersion: "unresolved", now: deps.now() })
     if (passId === undefined) return
     attempted.add(agentId)
-    const finish = (status: Parameters<Store["finishPass"]>[1]["status"], extra: Omit<Parameters<Store["finishPass"]>[1], "status" | "now"> = {}) =>
+    deps.info?.(`pass ${passId} started for ${agentId}`)
+    const finish = (status: Parameters<Store["finishPass"]>[1]["status"], extra: Omit<Parameters<Store["finishPass"]>[1], "status" | "now"> = {}) => {
       store.finishPass(passId, { status, now: deps.now(), ...extra })
+      deps.info?.(`pass ${passId} for ${agentId} ended: ${status}${extra.reason ? ` (${extra.reason})` : ""}${extra.branch ? ` on ${extra.branch}` : ""}`)
+    }
     try {
       const repo = config.agentConfigRepo
       if (repo === undefined) return finish("notify_only", { reason: "agentConfigRepo is not configured" })

@@ -18,6 +18,7 @@ export interface ToolDeps {
   readonly now: () => number
   /** Called when a rating newly trips an agent type. Must not throw. */
   readonly onTripped: (agentId: string) => void
+  readonly info?: (message: string) => void
 }
 
 const text = (content: string) => ({ content })
@@ -54,7 +55,12 @@ export function rateSubagentTool(deps: ToolDeps): ToolDefinition {
       })
       if (!result.ok) throw new Error(result.error)
       const call = store.getCall(input.call)
-      if (call && evaluateAgent(store, config, call.agentId, call.agentVersion, now).newlyTripped) deps.onTripped(call.agentId)
+      if (!call) return text("Rating recorded.")
+      deps.info?.(`rating recorded: ${call.agentId} scored ${input.score as number}`)
+      if (evaluateAgent(store, config, call.agentId, call.agentVersion, now).newlyTripped) {
+        deps.info?.(`agent ${call.agentId} tripped the quality threshold`)
+        deps.onTripped(call.agentId)
+      }
       return text("Rating recorded.")
     },
   }
