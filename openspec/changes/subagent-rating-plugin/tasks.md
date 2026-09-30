@@ -36,11 +36,11 @@ Every group lands its own tests (red first, per the `tdd` skill) and docs. Scena
 
 ## 6. Host adapter: improvement pass
 
-- [ ] 6.1 Pass runner: lock, worktree, session create/prompt/wait, brief, caps, scope gate, commit, notify-only paths, startup reconciliation; verify all "Pass produces…", "Unguided brief", "resource caps", "Scope gate", "Single pass", "Notify-only" scenarios with the fake host and temp repos
-- [ ] 6.2 Containment hooks (configurable tool allowlist, edit rules from `allowedPaths`, shell deny-unless-`shellAllow`, ask→deny); verify "Pass session containment" scenarios
-- [ ] 6.2a Built-in `subagent-tuner` registration via `agent.transform` `update` and configured-agent resolution/missing-agent failure; verify "Built-in tuning agent" and "Configured tuning agent does not exist" scenarios
-- [ ] 6.3 `subagent_tuning_resolve` tool and reminder notification; verify "User resolution of a pass" and "User is told a pass awaits review" scenarios
-- [ ] 6.4 Wire `Plugin.define` setup/cleanup (config, DB, hooks, tools, startup reconciliation); verify setup and cleanup test with the fake host
+- [x] 6.1 Pass runner: lock, worktree, session create/prompt/wait, brief, caps, scope gate, commit, notify-only paths, startup reconciliation; verify all "Pass produces…", "Unguided brief", "resource caps", "Scope gate", "Single pass", "Notify-only" scenarios with the fake host and temp repos
+- [x] 6.2 Containment hooks (configurable tool allowlist, edit rules from `allowedPaths`, shell deny-unless-`shellAllow`, ask→deny); verify "Pass session containment" scenarios
+- [x] 6.2a Built-in `subagent-tuner` registration via `agent.transform` `update` and configured-agent resolution/missing-agent failure; verify "Built-in tuning agent" and "Configured tuning agent does not exist" scenarios
+- [x] 6.3 `subagent_tuning_resolve` tool and reminder notification; verify "User resolution of a pass" and "User is told a pass awaits review" scenarios
+- [x] 6.4 Wire `Plugin.define` setup/cleanup (config, DB, hooks, tools, startup reconciliation); verify setup and cleanup test with the fake host
 
 ## 7. Integration
 

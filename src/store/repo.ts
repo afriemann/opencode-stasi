@@ -79,11 +79,12 @@ export interface Store {
   /** Returns the new pass id, or undefined when another pass is already running. */
   startPass(input: PassStart): string | undefined
   updatePassSession(passId: string, sessionId: string): void
+  updatePassTuner(passId: string, tunerVersion: string): void
   finishPass(passId: string, result: PassFinish): void
   getPass(passId: string): PassRow | undefined
   runningPass(): PassRow | undefined
-  /** Marks every `running` pass interrupted; returns how many. */
-  reconcileStalePasses(now: number): number
+  /** Marks `running` passes that started before `now - olderThanMs` as failed; returns how many. */
+  reconcileStalePasses(now: number, olderThanMs: number): number
   /** True the first time (key, session) is recorded. */
   markNotified(noticeKey: string, sessionId: string, now: number): boolean
   close(): void
@@ -234,6 +235,10 @@ function createStore(db: Driver): Store {
       }
     },
 
+    updatePassTuner: (passId, tunerVersion) => {
+      db.run("UPDATE passes SET tuner_version = ? WHERE id = ?", tunerVersion, passId)
+    },
+
     updatePassSession: (passId, sessionId) => {
       db.run("UPDATE passes SET session_id = ? WHERE id = ?", sessionId, passId)
     },
@@ -257,8 +262,8 @@ function createStore(db: Driver): Store {
       return r && toPassRow(r)
     },
 
-    reconcileStalePasses: (now) =>
-      db.run("UPDATE passes SET status = 'interrupted', ended_at = ?, reason = 'stale at startup' WHERE status = 'running'", now).changes,
+    reconcileStalePasses: (now, olderThanMs) =>
+      db.run("UPDATE passes SET status = 'failed', ended_at = ?, reason = 'stale at startup' WHERE status = 'running' AND started_at < ?", now, now - olderThanMs).changes,
 
     markNotified: (noticeKey, sessionId, now) =>
       db.run("INSERT OR IGNORE INTO notifications (notice_key, session_id, created_at) VALUES (?,?,?)", noticeKey, sessionId, now).changes === 1,

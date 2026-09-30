@@ -120,10 +120,11 @@ describe("agent state and passes", () => {
     assert.equal(typeof store.startPass({ agentId: "b", agentVersion: "v", tunerId: "t", tunerVersion: "tv", now: 4 }), "string")
   })
 
-  it("marks running passes interrupted on reconciliation", () => {
+  it("Stale running pass at startup", () => {
     const id = store.startPass({ agentId: "a", agentVersion: "v", tunerId: "t", tunerVersion: "tv", now: 1 }) as string
-    assert.equal(store.reconcileStalePasses(5), 1)
-    assert.equal(store.getPass(id)?.status, "interrupted")
+    assert.equal(store.reconcileStalePasses(5, 10), 0)
+    assert.equal(store.reconcileStalePasses(20, 10), 1)
+    assert.equal(store.getPass(id)?.status, "failed")
   })
 
   it("records a notice once per session", () => {
