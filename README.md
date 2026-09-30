@@ -59,7 +59,7 @@ Customise the built-in tuner by defining an agent with id `subagent-tuner` in yo
 
 - **Propose-only.** The pass works in a separate worktree on branch `agent-tuning/<agent>-<yyyymmdd>`. The plugin, not the model, commits; it never merges, pushes or edits your live definitions.
 - **Contained.** The pass session only sees `pass.tools`; edits are limited to `allowedPaths` inside the worktree; any permission prompt is auto-denied so it can never hang; time, step and token caps interrupt it. Sessions descended from a pass are never asked to rate.
-- **Shell is not containable.** If you opt in to `shell`, the host can only check command text, so an allowed command can still write elsewhere through its arguments. The plugin compares the status of your config repository's main checkout before and after and warns when it changed. Keep `shellAllow` narrow.
+- **Shell is not containable.** If you opt in to `shell`, the host can only check command text, so an allowed command can still write elsewhere through its arguments. The plugin compares the status of your config repository's main checkout before and after and warns when it changed. Keep `shellAllow` narrow. The host parses each command of a compound line separately before checking it against these patterns.
 - **Private.** Ratings live in a local database (directory `0700`, file `0600`) and are never sent anywhere by this plugin. Be aware that comments are read by the tuning agent and therefore reach your model provider.
 - **Untrusted comments.** Comments are attacker-influenceable input; the query tool frames them as data, and the tuner brief says so.
 

@@ -48,7 +48,7 @@ export function createGit(): Git {
     },
 
     async changedPaths(dir) {
-      const out = await git(dir, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+      const out = await git(dir, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames")
       return out
         .split("\0")
         .filter(Boolean)

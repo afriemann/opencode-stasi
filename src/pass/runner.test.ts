@@ -172,6 +172,12 @@ describe("improvement pass", () => {
     assert.match(store.latestPass("explore")!.reason ?? "", /steps/)
   })
 
+  it("Built-in tuner used when none configured", async () => {
+    const f = fixture()
+    await setup(f, config()).runPass("explore", "v1")
+    assert.equal(f.sessions[0]!.agent, BUILTIN_TUNER_ID)
+  })
+
   it("Configured agent takes precedence", async () => {
     const f = fixture()
     await setup(f, config({ pass: { agent: "custom" } })).runPass("explore", "v1")

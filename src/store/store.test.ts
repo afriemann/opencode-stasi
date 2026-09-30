@@ -30,12 +30,12 @@ const call = (id: string) => ({
 })
 
 describe("storage layout", () => {
-  it("creates the database owner-only in an owner-only directory", () => {
+  it("File permissions", () => {
     assert.equal(statSync(join(dir, "data")).mode & 0o777, 0o700)
     assert.equal(statSync(join(dir, "data", "ratings.db")).mode & 0o777, 0o600)
   })
 
-  it("refuses a database path inside a git work tree", async () => {
+  it("Database inside a git work tree", async () => {
     const repo = mkdtempSync(join(tmpdir(), "stasi-git-"))
     try {
       const { execFileSync } = await import("node:child_process")
@@ -46,7 +46,7 @@ describe("storage layout", () => {
     }
   })
 
-  it("reopens an existing database without losing rows", async () => {
+  it("State survives restart", async () => {
     store.recordCall(call("c1"))
     store.close()
     store = await openStore(join(dir, "data", "ratings.db"))

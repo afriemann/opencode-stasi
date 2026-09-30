@@ -16,7 +16,10 @@ const SHELL_TOOL = "shell"
 const ENV_FILE_PATTERNS = ["*.env", "*.env.*"]
 const NO_REDIRECT = "*>*"
 
-/** The host's wildcard matches `*` across path separators, so `**` collapses to `*`. */
+/**
+ * The host's wildcard matches `*` across path separators, so `**` collapses to `*`. This is deliberately
+ * looser than `core/scope`, whose post-hoc check on the changed paths is the authoritative gate.
+ */
 export function toWildcard(glob: string): string[] {
   const collapsed = glob.replaceAll("**", "*")
   return glob.startsWith("**/") ? [collapsed, collapsed.slice(2)] : [collapsed]

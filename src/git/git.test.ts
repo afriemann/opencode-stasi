@@ -35,7 +35,7 @@ describe("tuning worktree", () => {
     assert.equal(sh(wt.dir, "branch", "--show-current").trim(), wt.branch)
   })
 
-  it("suffixes the branch name when it already exists", async () => {
+  it("Branch name collision", async () => {
     await git.addWorktree({ repo, dir: join(root, "wt1"), agentId: "explore", date: "20260930", baseRef: "HEAD" })
     const second = await git.addWorktree({ repo, dir: join(root, "wt2"), agentId: "explore", date: "20260930", baseRef: "HEAD" })
     assert.equal(second.branch, "agent-tuning/explore-20260930-2")

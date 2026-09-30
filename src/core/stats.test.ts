@@ -7,20 +7,20 @@ describe("rolling-window statistics", () => {
   const row = (score: number, createdAt: number, version = "v1") => ({ score, createdAt, version })
   const opts = { windowSize: 3, version: "v1", resolvedAt: 0 }
 
-  it("keeps only the newest windowSize ratings", () => {
+  it("Window keeps the most recent ratings", () => {
     const rows = [row(1, 1), row(1, 2), row(5, 3), row(5, 4), row(5, 5)]
     const stats = windowStats(rows, opts)
     assert.equal(stats.n, 3)
     assert.equal(stats.mean, 5)
   })
 
-  it("ignores ratings of an older definition version", () => {
+  it("Ratings of an older definition version are ignored", () => {
     const stats = windowStats([row(1, 1, "old"), row(5, 2)], opts)
     assert.equal(stats.n, 1)
     assert.equal(stats.mean, 5)
   })
 
-  it("ignores ratings created at or before the last resolution", () => {
+  it("Ratings before the last resolution are ignored", () => {
     const stats = windowStats([row(1, 10), row(5, 11)], { ...opts, resolvedAt: 10 })
     assert.equal(stats.n, 1)
     assert.equal(stats.mean, 5)

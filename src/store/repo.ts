@@ -101,6 +101,7 @@ function insideGitWorkTree(path: string): boolean {
 export async function openStore(path: string): Promise<Store> {
   if (insideGitWorkTree(path)) throw new Error("refusing to store ratings inside a git work tree")
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+  chmodSync(dirname(path), 0o700)
   closeSync(openSync(path, "a", 0o600))
   chmodSync(path, 0o600)
   const db = await openDriver(path)

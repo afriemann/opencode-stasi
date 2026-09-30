@@ -65,6 +65,13 @@ describe("Rating request injection", () => {
     })
   })
 
+  it("Rater cannot supply the subagent type", async () => {
+    await hook()(subagentCompleted("call_r"))
+    const result = store.submitRating({ callId: "call_r", callerSessionId: "ses_root", score: 2, comment: "c", commentMax: 500, pendingTtlMs: 1e9, now: 43 })
+    assert.ok(result.ok)
+    assert.equal(store.getCall("call_r")?.agentId, "explore")
+  })
+
   it("appends to a plain string result", async () => {
     const event = subagentCompleted("call_s")
     if (event.status === "completed") event.result.content = "done"

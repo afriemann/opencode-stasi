@@ -8,15 +8,15 @@ describe("trip condition", () => {
   const idle = { status: "ok" as const, lastResolvedAt: 0, cooldownUntil: 0 }
   const stats = (n: number, mean: number | undefined) => ({ n, mean, median: mean, shareLow: 0 })
 
-  it("does not trip with too few samples", () => {
+  it("Too few samples", () => {
     assert.equal(shouldTrip(idle, stats(3, 1), cfg, 100), false)
   })
 
-  it("does not trip when the mean equals the threshold", () => {
+  it("Mean exactly at threshold", () => {
     assert.equal(shouldTrip(idle, stats(4, 3), cfg, 100), false)
   })
 
-  it("does not trip while the cooldown is active", () => {
+  it("Cooldown suppresses a trip", () => {
     assert.equal(shouldTrip({ ...idle, cooldownUntil: 200 }, stats(4, 1), cfg, 100), false)
   })
 
@@ -34,7 +34,7 @@ describe("trip condition", () => {
 describe("state transitions", () => {
   const idle = { status: "ok" as const, lastResolvedAt: 0, cooldownUntil: 0 }
 
-  it("records the tripped version and moves through awaiting_review", () => {
+  it("Trip recorded", () => {
     const tripped = markTripped(idle, "v1")
     assert.equal(tripped.status, "tripped")
     assert.equal(tripped.trippedVersion, "v1")
@@ -48,7 +48,7 @@ describe("state transitions", () => {
     assert.equal(resolved.cooldownUntil, 1500)
   })
 
-  it("auto-resolves a tripped or awaiting type when the definition version changes", () => {
+  it("Definition change auto-resolves", () => {
     const tripped = markTripped(idle, "v1")
     assert.equal(applyVersion(tripped, "v2", 1000, 500).status, "resolved")
     assert.equal(applyVersion(markAwaitingReview(tripped), "v2", 1000, 500).cooldownUntil, 1500)

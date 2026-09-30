@@ -4,7 +4,7 @@ import { parseConfig } from "./config.ts"
 
 // spec: openspec/changes/subagent-rating-plugin/specs/subagent-rating-capture/spec.md
 describe("configuration", () => {
-  it("applies defaults when the configuration is empty", () => {
+  it("Defaults apply", () => {
     const result = parseConfig({})
     assert.ok(result.ok)
     assert.equal(result.config.threshold, 3.0)
@@ -20,7 +20,7 @@ describe("configuration", () => {
     assert.ok(result.config.pass.tools.includes("subagent_ratings"))
   })
 
-  it("rejects an unknown key", () => {
+  it("Unknown key disables the plugin", () => {
     const result = parseConfig({ thresold: 2 })
     assert.ok(!result.ok)
     assert.match(result.error, /thresold/)
