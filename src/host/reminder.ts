@@ -24,7 +24,7 @@ export function createReminder(deps: ReminderDeps) {
       const fresh = open.filter((notice) => store.markNotified(notice.key, sessionId, deps.now()))
       if (fresh.length === 0) return
       const lines = fresh.map(
-        (n) => `- ${n.agent}: ${n.status.replace("_", " ")}${n.pass?.branch ? `, proposed branch ${n.pass.branch}` : ` (pass ${n.pass?.status ?? "not started"})`}`,
+        (n) => `- ${n.agent}: ${n.status.replace("_", " ")}${n.pass?.status === "committed" ? `, proposed branch ${n.pass.branch}` : ` (pass ${n.pass?.status ?? "not started"})`}`,
       )
       await deps.notify(
         sessionId,

@@ -13,6 +13,8 @@ const AI_DISCLOSURE = "🤖 AI-generated — posted by the engineer agent via op
 const RATIONALE_MAX_CHARS = 4096
 const RATING_SCAN_LIMIT = 500
 const DEFAULT_POLL_MS = 1000
+const RESOLVE_ATTEMPTS = 10
+const DEFAULT_RESOLVE_RETRY_MS = 1000
 const MINUTE_MS = 60_000
 
 export interface SessionRequest {
@@ -52,6 +54,8 @@ export interface PassDeps {
   /** Whether the plugin registered its built-in tuner (only when `pass.agent` is unset). */
   readonly builtinTunerEnabled: boolean
   readonly pollMs?: number
+  /** Delay between attempts to resolve the tuning agent in the new worktree location. */
+  readonly resolveRetryMs?: number
   readonly timeoutMs?: number
 }
 
@@ -122,8 +126,16 @@ export function createPassRunner(deps: PassDeps) {
       }
       const placement = { worktreePath: worktree.dir, branch: worktree.branch }
 
+      // A new worktree is a new host location whose plugins (and thus the built-in tuner) load lazily.
       let resolveError: unknown
-      const tuner = await ports.resolveAgent(tunerId, worktree.dir).catch((error: unknown) => ((resolveError = error), undefined))
+      let tuner: { readonly version: string } | undefined
+      for (let attempt = 1; attempt <= RESOLVE_ATTEMPTS && !tuner; attempt++) {
+        tuner = await ports.resolveAgent(tunerId, worktree.dir).catch((error: unknown) => ((resolveError = error), undefined))
+        if (!tuner && attempt < RESOLVE_ATTEMPTS) {
+          deps.info?.(`tuning agent "${tunerId}" not yet available at the worktree (attempt ${attempt}): ${errorText(resolveError)}`)
+          await new Promise((resolve) => setTimeout(resolve, deps.resolveRetryMs ?? DEFAULT_RESOLVE_RETRY_MS))
+        }
+      }
       if (!tuner) {
         const detail = resolveError === undefined ? "" : `: ${errorText(resolveError)}`
         return finish("failed", { ...placement, reason: `tuning agent "${tunerId}" cannot be resolved${detail}` })

@@ -93,6 +93,7 @@ function setup(f: Fixture, cfg: Config, extra: { builtinTunerEnabled?: boolean; 
     log: () => undefined,
     builtinTunerEnabled: extra.builtinTunerEnabled ?? cfg.pass.agent === undefined,
     pollMs: 5,
+    resolveRetryMs: 1,
     ...(extra.timeoutMs === undefined ? {} : { timeoutMs: extra.timeoutMs }),
   })
 }
@@ -154,6 +155,7 @@ describe("improvement pass", () => {
       log: () => undefined,
       builtinTunerEnabled: true,
       pollMs: 5,
+      resolveRetryMs: 1,
       timeoutMs: 300,
     })
     store.saveState("explore", { status: "tripped", trippedVersion: "v1", lastResolvedAt: 0, cooldownUntil: 0 })
@@ -251,6 +253,15 @@ describe("one pass per trip", () => {
     await runner.drain()
     assert.equal(f.git.worktrees.length, 1)
     assert.equal(store.latestPass("explore")!.status, "failed")
+  })
+
+  it("Tuning agent registered late is found by retrying", async () => {
+    const f = fixture()
+    let calls = 0
+    f.ports = { ...f.ports, resolveAgent: async () => (++calls < 3 ? Promise.reject(new Error("Agent not found")) : { version: "t1" }) }
+    await setup(f, config()).runPass("explore", "v1")
+    assert.equal(calls, 3)
+    assert.equal(store.latestPass("explore")!.status, "no_change")
   })
 
   it("Tuning agent lookup error is reported", async () => {

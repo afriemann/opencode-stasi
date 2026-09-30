@@ -119,7 +119,7 @@ function overview(store: Store) {
       agent,
       state: open,
       ...(open === "tripped" || open === "awaiting_review"
-        ? { pass: pass && { status: pass.status, branch: pass.branch, worktree: pass.worktreePath, reason: pass.reason } }
+        ? { pass: pass && { status: pass.status, branch: pass.status === "committed" ? pass.branch : undefined, worktree: pass.worktreePath, reason: pass.reason } }
         : {}),
     }
   })
