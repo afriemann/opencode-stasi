@@ -68,8 +68,7 @@ export function createPassHost(ctx: Pick<Plugin.Context, "session" | "agent" | "
     passSessionIds,
 
     async resolveAgent(agentId, directory) {
-      const found = await ctx.agent.get({ agentID: agentId as never, location: { directory } as never }).catch(() => undefined)
-      if (!found) return undefined
+      const found = await ctx.agent.get({ agentID: agentId as never, location: { directory } as never })
       return { version: agentVersion(found.data as never) }
     },
 

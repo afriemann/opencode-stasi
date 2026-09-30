@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin"
-import { dirname, join } from "node:path"
+import { dirname, join, sep } from "node:path"
 import { defaultConfigPath, defaultDbPath, loadConfig } from "./config-file.ts"
 import { createLogger } from "./logger.ts"
 import { createGit } from "./git/git.ts"
@@ -57,19 +57,26 @@ export default Plugin.define({
       return result
     }
 
-    store.reconcileStalePasses(now(), config.pass.timeoutMinutes * MINUTE_MS)
+    // Every pass worktree is its own location and gets its own plugin instance. Only instances outside
+    // the worktree root may start passes; otherwise each pass would spawn the next one.
+    const worktreeRoot = join(dirname(dbPath), "worktrees")
+    const passive = ctx.location.directory === worktreeRoot || ctx.location.directory.startsWith(`${worktreeRoot}${sep}`)
+    if (passive) info(`pass worktree location ${ctx.location.directory}: passive, will not start passes`)
+    else store.reconcileStalePasses(now(), config.pass.timeoutMinutes * MINUTE_MS)
 
     const runner = createPassRunner({
       store,
       config,
       ports: passHost,
-      worktreeRoot: join(dirname(dbPath), "worktrees"),
+      worktreeRoot,
       now,
       log,
       builtinTunerEnabled: config.pass.agent === undefined,
       info,
     })
-    const startPasses = () => void runner.drain().catch((error: unknown) => log("improvement pass failed", error))
+    const startPasses = () => {
+      if (!passive) void runner.drain().catch((error: unknown) => log("improvement pass failed", error))
+    }
 
     const toolDeps = { store, config, now, onTripped: startPasses, info }
     await registerTools(port, [

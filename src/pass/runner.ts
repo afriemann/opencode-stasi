@@ -72,7 +72,6 @@ type CapReason = "timeout" | "steps" | "tokens"
 
 export function createPassRunner(deps: PassDeps) {
   const { store, config, ports } = deps
-  const attempted = new Set<string>()
   const tunerId = config.pass.agent ?? BUILTIN_TUNER_ID
 
   async function raceCaps(passId: string, sessionId: string, prompt: string): Promise<"done" | CapReason> {
@@ -102,7 +101,6 @@ export function createPassRunner(deps: PassDeps) {
   async function runPass(agentId: string, version: string): Promise<void> {
     const passId = store.startPass({ agentId, agentVersion: version, tunerId, tunerVersion: "unresolved", now: deps.now() })
     if (passId === undefined) return
-    attempted.add(agentId)
     deps.info?.(`pass ${passId} started for ${agentId}`)
     const finish = (status: Parameters<Store["finishPass"]>[1]["status"], extra: Omit<Parameters<Store["finishPass"]>[1], "status" | "now"> = {}) => {
       store.finishPass(passId, { status, now: deps.now(), ...extra })
@@ -124,8 +122,12 @@ export function createPassRunner(deps: PassDeps) {
       }
       const placement = { worktreePath: worktree.dir, branch: worktree.branch }
 
-      const tuner = await ports.resolveAgent(tunerId, worktree.dir).catch(() => undefined)
-      if (!tuner) return finish("failed", { ...placement, reason: `tuning agent "${tunerId}" cannot be resolved` })
+      let resolveError: unknown
+      const tuner = await ports.resolveAgent(tunerId, worktree.dir).catch((error: unknown) => ((resolveError = error), undefined))
+      if (!tuner) {
+        const detail = resolveError === undefined ? "" : `: ${errorText(resolveError)}`
+        return finish("failed", { ...placement, reason: `tuning agent "${tunerId}" cannot be resolved${detail}` })
+      }
       store.updatePassTuner(passId, tuner.version)
 
       let session: { id: string }
@@ -196,13 +198,16 @@ export function createPassRunner(deps: PassDeps) {
     }
   }
 
-  /** Starts a pass for every tripped agent not yet attempted in this process, one after another. */
+  /**
+   * Starts a pass for every tripped agent that has not had a pass for its tripped version, one after another.
+   * The check reads the database, so it also holds across plugin instances and restarts.
+   */
   async function drain(): Promise<void> {
     for (;;) {
       if (store.runningPass()) return
       const next = store.listAgents().find((agent) => {
         const state = store.getState(agent)
-        return state.status === "tripped" && !attempted.has(agent)
+        return state.status === "tripped" && store.latestPass(agent)?.agentVersion !== state.trippedVersion
       })
       if (next === undefined) return
       await runPass(next, store.getState(next).trippedVersion ?? "unknown")

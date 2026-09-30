@@ -62,6 +62,7 @@ export interface PassRow {
   readonly branch: string | undefined
   readonly worktreePath: string | undefined
   readonly reason: string | undefined
+  readonly agentVersion: string
 }
 
 export interface Store {
@@ -112,6 +113,7 @@ export async function openStore(path: string): Promise<Store> {
 interface PassDbRow {
   id: string
   agent_id: string
+  agent_version: string
   status: PassStatus
   session_id: string | null
   branch: string | null
@@ -126,6 +128,7 @@ const toPassRow = (r: PassDbRow): PassRow => ({
   branch: r.branch ?? undefined,
   worktreePath: r.worktree_path ?? undefined,
   reason: r.reason ?? undefined,
+  agentVersion: r.agent_version,
 })
 
 interface StateDbRow {
@@ -207,7 +210,7 @@ function createStore(db: Driver): Store {
 
     latestPass(agentId) {
       const r = db.get<PassDbRow>(
-        "SELECT id, agent_id, status, session_id, branch, worktree_path, reason FROM passes WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1",
+        "SELECT id, agent_id, agent_version, status, session_id, branch, worktree_path, reason FROM passes WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1",
         agentId,
       )
       return r && toPassRow(r)
@@ -254,12 +257,12 @@ function createStore(db: Driver): Store {
     },
 
     getPass(passId) {
-      const r = db.get<PassDbRow>("SELECT id, agent_id, status, session_id, branch, worktree_path, reason FROM passes WHERE id = ?", passId)
+      const r = db.get<PassDbRow>("SELECT id, agent_id, agent_version, status, session_id, branch, worktree_path, reason FROM passes WHERE id = ?", passId)
       return r && toPassRow(r)
     },
 
     runningPass() {
-      const r = db.get<PassDbRow>("SELECT id, agent_id, status, session_id, branch, worktree_path, reason FROM passes WHERE status = 'running'")
+      const r = db.get<PassDbRow>("SELECT id, agent_id, agent_version, status, session_id, branch, worktree_path, reason FROM passes WHERE status = 'running'")
       return r && toPassRow(r)
     },
 

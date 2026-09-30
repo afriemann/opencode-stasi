@@ -87,6 +87,17 @@ The plugin SHALL run at most one improvement pass globally, and SHALL start a qu
 - **WHEN** the plugin starts and a pass is marked running for longer than `timeoutMinutes`
 - **THEN** it is marked failed and a queued trip may start
 
+### Requirement: One automatic pass per trip
+The plugin SHALL start at most one automatic pass for an agent type per tripped definition version, and SHALL start no pass from a plugin instance whose location lies inside a pass worktree.
+
+#### Scenario: A failed pass is not retried for the same tripped version
+- **WHEN** a pass for a tripped type ended in any status and the type is still tripped at the same definition version
+- **THEN** no further automatic pass starts for it, in this or any other plugin instance
+
+#### Scenario: Instance inside a pass worktree stays passive
+- **WHEN** the plugin loads in a location inside the pass worktree root while a type is tripped
+- **THEN** it starts no pass
+
 ### Requirement: Notify-only fallback
 The plugin SHALL leave a tripped type in state tripped, record the reason in the pass status as notify_only or failed, and start no session when `agentConfigRepo` is unset or not a git repository, the agent is listed in `triggerExclude` (empty by default), a configured `pass.agent` does not exist, the built-in tuner is disabled while `pass.agent` is unset, or worktree creation, session creation or prompting fails.
 

@@ -7,12 +7,13 @@ import { describe, it } from "node:test"
 import { registerBuiltinTuner } from "./pass/tuner.ts"
 import plugin from "./server.ts"
 
-function fakeCtx(options: Record<string, unknown>) {
+function fakeCtx(options: Record<string, unknown>, directory = "/work/project") {
   const registered: string[] = []
   const hooks: string[] = []
   const agents: Record<string, { permissions: unknown[]; [key: string]: unknown }> = {}
   const ctx = {
     options,
+    location: { directory },
     agent: {
       transform: async (cb: (editor: { update(id: string, fn: (item: never) => void): void }) => void) =>
         cb({
@@ -63,6 +64,28 @@ describe("plugin wiring", () => {
       const cleanup = await run(ctx)
       assert.deepEqual(Object.keys(agents), [])
       ;(cleanup as () => void)()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("Instance inside a pass worktree stays passive", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "stasi-setup-"))
+    try {
+      const dbPath = join(dir, "data", "ratings.db")
+      const configPath = join(dir, "cfg.json")
+      writeFileSync(configPath, JSON.stringify({ dbPath, agentConfigRepo: join(dir, "repo") }))
+      const { ctx } = fakeCtx({ configPath }, join(dir, "data", "worktrees", "p1"))
+      const { openStore } = await import("./store/repo.ts")
+      const seed = await openStore(dbPath)
+      seed.saveState("explore", { status: "tripped", trippedVersion: "v1", lastResolvedAt: 0, cooldownUntil: 0 })
+      seed.close()
+      const cleanup = await run(ctx)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      ;(cleanup as () => void)()
+      const check = await openStore(dbPath)
+      assert.equal(check.latestPass("explore"), undefined)
+      check.close()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

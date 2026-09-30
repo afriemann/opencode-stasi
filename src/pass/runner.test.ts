@@ -242,6 +242,25 @@ describe("notify-only fallback", () => {
   })
 })
 
+describe("one pass per trip", () => {
+  it("A failed pass is not retried for the same tripped version", async () => {
+    const f = fixture()
+    f.failCreate = true
+    const runner = setup(f, config())
+    await runner.drain()
+    await runner.drain()
+    assert.equal(f.git.worktrees.length, 1)
+    assert.equal(store.latestPass("explore")!.status, "failed")
+  })
+
+  it("Tuning agent lookup error is reported", async () => {
+    const f = fixture()
+    f.ports = { ...f.ports, resolveAgent: async () => Promise.reject(new Error("no such location")) }
+    await setup(f, config()).runPass("explore", "v1")
+    assert.match(store.latestPass("explore")!.reason ?? "", /no such location/)
+  })
+})
+
 describe("single pass at a time", () => {
   it("Second trip while a pass runs", async () => {
     const f = fixture()
