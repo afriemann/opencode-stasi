@@ -28,7 +28,7 @@ export type ConfigResult = { readonly ok: true; readonly config: Config } | { re
 
 type Spec = "number" | "positiveInt" | "rate" | "string" | "stringList"
 
-const TOP_LEVEL: Record<string, Spec | "pass"> = {
+export const TOP_LEVEL: Record<string, Spec | "pass"> = {
   threshold: "number",
   windowSize: "positiveInt",
   minSamples: "positiveInt",
@@ -44,7 +44,7 @@ const TOP_LEVEL: Record<string, Spec | "pass"> = {
   pass: "pass",
 }
 
-const PASS_LEVEL: Record<string, Spec> = {
+export const PASS_LEVEL: Record<string, Spec> = {
   agent: "string",
   tools: "stringList",
   shellAllow: "stringList",

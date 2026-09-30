@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, it } from "node:test"
 import { openStore, type Store } from "./repo.ts"
 
+const DAY = 86_400_000
 let dir: string
 let store: Store
 
@@ -56,42 +57,49 @@ describe("storage layout", () => {
 describe("rating submission", () => {
   it("stores a rating for a pending call by its caller", () => {
     store.recordCall(call("c1"))
-    const res = store.submitRating({ callId: "c1", callerSessionId: "ses_caller", score: 4, comment: "good", commentMax: 500, now: 2000 })
+    const res = store.submitRating({ callId: "c1", callerSessionId: "ses_caller", score: 4, comment: "good", commentMax: 500, pendingTtlMs: DAY, now: 2000 })
     assert.deepEqual(res, { ok: true })
     assert.equal(store.getCall("c1")?.status, "rated")
     assert.deepEqual(store.recentRatings("explore", 10), [{ score: 4, version: "v1", createdAt: 2000, comment: "good" }])
   })
 
   it("rejects an unknown call id", () => {
-    const res = store.submitRating({ callId: "nope", callerSessionId: "ses_caller", score: 4, comment: "x", commentMax: 500, now: 1 })
+    const res = store.submitRating({ callId: "nope", callerSessionId: "ses_caller", score: 4, comment: "x", commentMax: 500, pendingTtlMs: DAY, now: 1 })
     assert.equal(res.ok, false)
   })
 
   it("rejects a second rating for the same call", () => {
     store.recordCall(call("c1"))
-    const input = { callId: "c1", callerSessionId: "ses_caller", score: 4, comment: "x", commentMax: 500, now: 1 }
+    const input = { callId: "c1", callerSessionId: "ses_caller", score: 4, comment: "x", commentMax: 500, pendingTtlMs: DAY, now: 1 }
     store.submitRating(input)
     assert.equal(store.submitRating(input).ok, false)
   })
 
   it("rejects a rating from a session that did not make the call", () => {
     store.recordCall(call("c1"))
-    const res = store.submitRating({ callId: "c1", callerSessionId: "ses_other", score: 4, comment: "x", commentMax: 500, now: 1 })
+    const res = store.submitRating({ callId: "c1", callerSessionId: "ses_other", score: 4, comment: "x", commentMax: 500, pendingTtlMs: DAY, now: 1 })
     assert.equal(res.ok, false)
     assert.equal(store.getCall("c1")?.status, "pending")
   })
 
   it("rejects an out-of-range score and an over-long comment", () => {
     store.recordCall(call("c1"))
-    const base = { callId: "c1", callerSessionId: "ses_caller", now: 1, commentMax: 5 }
+    const base = { callId: "c1", callerSessionId: "ses_caller", now: 1, commentMax: 5, pendingTtlMs: DAY }
     assert.equal(store.submitRating({ ...base, score: 6, comment: "x" }).ok, false)
     assert.equal(store.submitRating({ ...base, score: 3, comment: "toolong" }).ok, false)
+  })
+
+  it("Late rating is rejected", () => {
+    store.recordCall(call("c1"))
+    const res = store.submitRating({ callId: "c1", callerSessionId: "ses_caller", score: 4, comment: "x", commentMax: 500, pendingTtlMs: DAY, now: 1000 + DAY + 1 })
+    assert.equal(res.ok, false)
+    assert.equal(store.getCall("c1")?.status, "expired")
   })
 
   it("returns ratings newest first, limited", () => {
     for (const [i, id] of ["a", "b", "c"].entries()) {
       store.recordCall(call(id))
-      store.submitRating({ callId: id, callerSessionId: "ses_caller", score: 3, comment: id, commentMax: 500, now: 10 + i })
+      store.submitRating({ callId: id, callerSessionId: "ses_caller", score: 3, comment: id, commentMax: 500, pendingTtlMs: DAY, now: 10 + i })
     }
     assert.deepEqual(store.recentRatings("explore", 2).map((r) => r.comment), ["c", "b"])
   })

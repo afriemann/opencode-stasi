@@ -24,6 +24,7 @@ export interface RatingInput {
   readonly score: number
   readonly comment: string
   readonly commentMax: number
+  readonly pendingTtlMs: number
   readonly now: number
 }
 export interface RatingRow {
@@ -59,6 +60,7 @@ export interface PassRow {
   readonly status: PassStatus
   readonly sessionId: string | undefined
   readonly branch: string | undefined
+  readonly worktreePath: string | undefined
   readonly reason: string | undefined
 }
 
@@ -69,6 +71,10 @@ export interface Store {
   /** Newest first. */
   recentRatings(agentId: string, limit: number): RatingRow[]
   getState(agentId: string): AgentState
+  /** Every agent type that has a rating or a state record. */
+  listAgents(): string[]
+  /** Latest pass for the agent, if any. */
+  latestPass(agentId: string): PassRow | undefined
   saveState(agentId: string, state: AgentState): void
   /** Returns the new pass id, or undefined when another pass is already running. */
   startPass(input: PassStart): string | undefined
@@ -107,6 +113,7 @@ interface PassDbRow {
   status: PassStatus
   session_id: string | null
   branch: string | null
+  worktree_path: string | null
   reason: string | null
 }
 const toPassRow = (r: PassDbRow): PassRow => ({
@@ -115,7 +122,22 @@ const toPassRow = (r: PassDbRow): PassRow => ({
   status: r.status,
   sessionId: r.session_id ?? undefined,
   branch: r.branch ?? undefined,
+  worktreePath: r.worktree_path ?? undefined,
   reason: r.reason ?? undefined,
+})
+
+interface StateDbRow {
+  agent_id: string
+  state: AgentState["status"]
+  tripped_version: string | null
+  last_resolved_at: number
+  cooldown_until: number
+}
+const toState = (r: StateDbRow): AgentState => ({
+  status: r.state,
+  ...(r.tripped_version === null ? {} : { trippedVersion: r.tripped_version }),
+  lastResolvedAt: r.last_resolved_at,
+  cooldownUntil: r.cooldown_until,
 })
 
 function createStore(db: Driver): Store {
@@ -150,6 +172,10 @@ function createStore(db: Driver): Store {
         if (!call) return { ok: false, error: `unknown call id ${input.callId}` }
         if (call.callerSessionId !== input.callerSessionId) return { ok: false, error: "call was not made by this session" }
         if (call.status !== "pending") return { ok: false, error: `call already ${call.status}` }
+        if (input.now - call.createdAt > input.pendingTtlMs) {
+          db.run("UPDATE calls SET status = 'expired' WHERE call_id = ?", call.callId)
+          return { ok: false, error: "call expired: ratings must be submitted promptly" }
+        }
         db.run(
           "INSERT INTO ratings (call_id, agent_id, agent_version, score, comment, caller_session_id, child_session_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
           call.callId, call.agentId, call.agentVersion, input.score, input.comment, call.callerSessionId, call.childSessionId, input.now,
@@ -168,17 +194,21 @@ function createStore(db: Driver): Store {
         .map((r) => ({ score: r.score, version: r.agent_version, createdAt: r.created_at, comment: r.comment })),
 
     getState(agentId) {
-      const r = db.get<{ state: AgentState["status"]; tripped_version: string | null; last_resolved_at: number; cooldown_until: number }>(
-        "SELECT state, tripped_version, last_resolved_at, cooldown_until FROM agent_state WHERE agent_id = ?",
+      const r = db.get<StateDbRow>("SELECT * FROM agent_state WHERE agent_id = ?", agentId)
+      return r ? toState(r) : { status: "ok", lastResolvedAt: 0, cooldownUntil: 0 }
+    },
+
+    listAgents: () =>
+      db
+        .all<{ agent_id: string }>("SELECT agent_id FROM ratings UNION SELECT agent_id FROM agent_state ORDER BY agent_id")
+        .map((r) => r.agent_id),
+
+    latestPass(agentId) {
+      const r = db.get<PassDbRow>(
+        "SELECT id, agent_id, status, session_id, branch, worktree_path, reason FROM passes WHERE agent_id = ? ORDER BY started_at DESC LIMIT 1",
         agentId,
       )
-      if (!r) return { status: "ok", lastResolvedAt: 0, cooldownUntil: 0 }
-      return {
-        status: r.state,
-        ...(r.tripped_version === null ? {} : { trippedVersion: r.tripped_version }),
-        lastResolvedAt: r.last_resolved_at,
-        cooldownUntil: r.cooldown_until,
-      }
+      return r && toPassRow(r)
     },
 
     saveState: (agentId, s) => {
@@ -218,12 +248,12 @@ function createStore(db: Driver): Store {
     },
 
     getPass(passId) {
-      const r = db.get<PassDbRow>("SELECT id, agent_id, status, session_id, branch, reason FROM passes WHERE id = ?", passId)
+      const r = db.get<PassDbRow>("SELECT id, agent_id, status, session_id, branch, worktree_path, reason FROM passes WHERE id = ?", passId)
       return r && toPassRow(r)
     },
 
     runningPass() {
-      const r = db.get<PassDbRow>("SELECT id, agent_id, status, session_id, branch, reason FROM passes WHERE status = 'running'")
+      const r = db.get<PassDbRow>("SELECT id, agent_id, status, session_id, branch, worktree_path, reason FROM passes WHERE status = 'running'")
       return r && toPassRow(r)
     },
 

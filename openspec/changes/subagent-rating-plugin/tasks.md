@@ -28,11 +28,11 @@ Every group lands its own tests (red first, per the `tdd` skill) and docs. Scena
 
 ## 5. Host adapter: capture and tools
 
-- [ ] 5.1 Narrow `HostPort` typed against the pinned plugin types and a fake host with fixtures derived from verified source types; verify `tsc` fails on fixture drift
-- [ ] 5.2 Capture hook on `execute.after` (eligibility, injection, error safety, exclusion); verify all "Rating request injection", "Excluded calls" scenarios
-- [ ] 5.3 `rate_subagent` tool (`codemode:false`); verify all "rate_subagent stores a validated rating" and "Unrated calls expire" scenarios
-- [ ] 5.4 `subagent_ratings` tool with untrusted framing and limit clamp; verify all "Evidence query tool" and "untrusted" scenarios
-- [ ] 5.5 README documenting install, every config key with default, privacy notes; verify each documented key exists in the config schema test
+- [x] 5.1 Narrow `HostPort` typed against the pinned plugin types and a fake host with fixtures derived from verified source types; verify `tsc` fails on fixture drift
+- [x] 5.2 Capture hook on `execute.after` (eligibility, injection, error safety, exclusion); verify all "Rating request injection", "Excluded calls" scenarios
+- [x] 5.3 `rate_subagent` tool (`codemode:false`); verify all "rate_subagent stores a validated rating" and "Unrated calls expire" scenarios
+- [x] 5.4 `subagent_ratings` tool with untrusted framing and limit clamp; verify all "Evidence query tool" and "untrusted" scenarios
+- [x] 5.5 README documenting install, every config key with default, privacy notes; verify each documented key exists in the config schema test
 
 ## 6. Host adapter: improvement pass
 
