@@ -4,17 +4,17 @@ Every group lands its own tests (red first, per the `tdd` skill) and docs. Scena
 
 ## 1. Scaffold
 
-- [ ] 1.1 Create TypeScript ESM package named `opencode-stasi` (`package.json` with `./server` export, `tsconfig`, `@opencode/plugin` as type-only dev dependency pinned to the host version, `.gitignore` incl. `/.worktrees/`) and verify `build` emits `dist/server.js`
-- [ ] 1.2 Add Bun and Node test runners plus pre-commit config (lint/format/detect-secrets) and verify both runners pass on an empty suite and pre-commit runs clean
-- [ ] 1.3 Add a hygiene check (pre-commit hook or test) rejecting absolute home-directory paths, the local username and hostname in tracked files, including commit messages; verify it fails on a planted `/home/<user>/x` and passes on `~/x`
+- [x] 1.1 Create TypeScript ESM package named `opencode-stasi` (`package.json` with `./server` export, `tsconfig`, `@opencode/plugin` as type-only dev dependency pinned to the host version, `.gitignore` incl. `/.worktrees/`) and verify `build` emits `dist/server.js`
+- [x] 1.2 Add Bun and Node test runners plus pre-commit config (lint/format/detect-secrets) and verify both runners pass on an empty suite and pre-commit runs clean
+- [x] 1.3 Add a hygiene check (pre-commit hook or test) rejecting absolute home-directory paths, the local username and hostname in tracked files, including commit messages; verify it fails on a planted `/home/<user>/x` and passes on `~/x`
 
 ## 2. Core (pure logic)
 
-- [ ] 2.1 Config parsing/defaults/unknown-key rejection (`core/config`); verify "Defaults apply" and "Unknown key disables the plugin" tests
-- [ ] 2.2 Rubric line, score/comment validation and deterministic sampling (`core/rubric`, `validate`, `sampling`); verify score and comment-boundary tests and sampling determinism
-- [ ] 2.3 Window, mean, median, share-at-or-below-2 (`core/stats`); verify window-size, version and last-resolution scenarios
-- [ ] 2.4 Trigger state machine incl. cooldown and version-change auto-resolve (`core/trigger`); verify every transition test
-- [ ] 2.5 Exclusion predicate and agent-definition version hash (`core/exclusion`, `version`); verify lineage, key-order independence tests
+- [x] 2.1 Config parsing/defaults/unknown-key rejection (`core/config`); verify "Defaults apply" and "Unknown key disables the plugin" tests
+- [x] 2.2 Rubric line, score/comment validation and deterministic sampling (`core/rubric`, `validate`, `sampling`); verify score and comment-boundary tests and sampling determinism
+- [x] 2.3 Window, mean, median, share-at-or-below-2 (`core/stats`); verify window-size, version and last-resolution scenarios
+- [x] 2.4 Trigger state machine incl. cooldown and version-change auto-resolve (`core/trigger`); verify every transition test
+- [x] 2.5 Exclusion predicate and agent-definition version hash (`core/exclusion`, `version`); verify lineage, key-order independence tests
 
 ## 3. Storage
 
