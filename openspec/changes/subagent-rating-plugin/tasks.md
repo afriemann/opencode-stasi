@@ -44,5 +44,5 @@ Every group lands its own tests (red first, per the `tdd` skill) and docs. Scena
 
 ## 7. Integration
 
-- [ ] 7.1 Manual smoke in a real V2 host: rate one call, force a trip with `minSamples:1` against a scratch config repo with the built-in tuner and once with a configured agent, observe branch and reminder; record the outcome in the README without local paths (covers the unverified session-in-new-directory behaviour)
+- [x] 7.1 Manual smoke in a real V2 host: rate one call, force a trip with `minSamples:1` against a scratch config repo with the built-in tuner and once with a configured agent, observe branch and reminder; record the outcome in the README without local paths (covers the unverified session-in-new-directory behaviour)
 - [x] 7.2 Run the full suite, build, lint and `openspec validate subagent-rating-plugin`; verify all green

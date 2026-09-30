@@ -71,6 +71,13 @@ Customise the built-in tuner by defining an agent with id `subagent-tuner` in yo
 - **Private.** Ratings live in a local database (directory `0700`, file `0600`) and are never sent anywhere by this plugin. Be aware that comments are read by the tuning agent and therefore reach your model provider.
 - **Untrusted comments.** Comments are attacker-influenceable input; the query tool frames them as data, and the tuner brief says so.
 
+## Verification status
+
+Smoke-tested in a real V2 host: rating capture, `rate_subagent`, `subagent_ratings`, a trip, one improvement pass with the built-in `subagent-tuner` in a fresh worktree (outcome `no_change` with a rationale), the once-per-session reminder, and `subagent_tuning_resolve`. Findings from that run:
+
+- Each pass worktree is a new host location that loads its own plugin instance. Those instances stay passive, and the tuner lookup retries because the built-in agent registers lazily.
+- A `commit` outcome (edited agent file) was not exercised in a real host; it is covered by tests with temporary repositories.
+
 ## Development
 
 ```sh
