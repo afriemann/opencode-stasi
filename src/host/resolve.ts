@@ -21,7 +21,7 @@ export function subagentTuningResolveTool(deps: ResolveDeps): ToolDefinition {
     name: "subagent_tuning_resolve",
     description:
       "Close the open improvement notice for a subagent type after you reviewed (or decided to ignore) the proposed branch. " +
-      "`outcome` is accepted or dismissed; `confirm` must repeat the agent id exactly. Only a top-level session may call it. " +
+      "`outcome` is accepted or dismissed; `confirm` must repeat the agent id exactly. Only a top-level session may call it, and never the agent the notice is about. " +
       "The pass worktree is removed unless it has uncommitted changes; the branch is kept.",
     input: {
       type: "object",
@@ -36,6 +36,7 @@ export function subagentTuningResolveTool(deps: ResolveDeps): ToolDefinition {
     async execute(input: { agent?: unknown; outcome?: unknown; confirm?: unknown }, context) {
       if (typeof input.agent !== "string" || input.confirm !== input.agent) throw new Error("confirm must equal the agent id")
       if (input.outcome !== "accepted" && input.outcome !== "dismissed") throw new Error("outcome must be accepted or dismissed")
+      if (context.agent === input.agent) throw new Error("an agent cannot resolve a notice about itself; ask the user or another agent")
       if (!(await deps.isRootOutsidePass(context.sessionID))) throw new Error("only a top-level session may resolve a tuning notice")
       const state = store.getState(input.agent)
       if (state.status !== "tripped" && state.status !== "awaiting_review") throw new Error(`no open notice for "${input.agent}"`)

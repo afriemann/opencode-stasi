@@ -33,7 +33,7 @@ Create the configuration file (see below). Without `agentConfigRepo` the plugin 
 |---|---|
 | `rate_subagent` `{call, score, comment}` | Called by the agent that made the subagent call. One rating per call, only from the calling session, only while the call is pending (`pendingTtlHours`). |
 | `subagent_ratings` `{agent?, limit?}` | Read-only evidence. Without `agent`: the state of every rated type and any open pass. With `agent`: window statistics and up to 50 recent ratings with comments. Comments are returned inside an `untrusted_comment` field after a fixed warning, because they are text written by other agents. |
-| `subagent_tuning_resolve` `{agent, outcome, confirm}` | Closes an open trip as `accepted` or `dismissed` once you have reviewed the branch. `confirm` must equal the agent id. Only usable from a top-level session. |
+| `subagent_tuning_resolve` `{agent, outcome, confirm}` | Closes an open trip as `accepted` or `dismissed` once you have reviewed the branch. `confirm` must equal the agent id. Only usable from a top-level session, and never by the agent the notice is about. |
 
 ## Configuration
 

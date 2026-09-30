@@ -128,6 +128,10 @@ The `subagent_tuning_resolve` tool SHALL accept an agent, an outcome of accepted
 - **THEN** the state becomes resolved, `cooldown_until` is set, and the pass worktree is removed unless it has uncommitted changes
 - **AND** the branch is kept
 
+#### Scenario: An agent cannot resolve a notice about itself
+- **WHEN** the calling session's agent is the agent the notice is about
+- **THEN** the tool returns an error and the state is unchanged
+
 #### Scenario: Wrong confirmation or non-root caller
 - **WHEN** the confirmation does not match or the caller is a subagent or pass session
 - **THEN** the tool returns an error and the state is unchanged

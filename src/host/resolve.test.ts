@@ -75,6 +75,16 @@ describe("subagent_tuning_resolve", () => {
   })
 })
 
+describe("self-resolution", () => {
+  it("An agent cannot resolve a notice about itself", async () => {
+    const { t } = tool()
+    await assert.rejects(t.execute(call, { sessionID: "ses_root", agent: "explore" }), /itself/)
+    assert.equal(store.getState("explore").status, "awaiting_review")
+    await t.execute(call, { sessionID: "ses_root", agent: "build" })
+    assert.equal(store.getState("explore").status, "resolved")
+  })
+})
+
 describe("reminder", () => {
   it("Reminder shown once", async () => {
     const sent: string[] = []
