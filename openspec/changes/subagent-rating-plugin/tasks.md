@@ -18,13 +18,13 @@ Every group lands its own tests (red first, per the `tdd` skill) and docs. Scena
 
 ## 3. Storage
 
-- [ ] 3.1 SQLite driver for bun:sqlite and node:sqlite plus migrations (`PRAGMA user_version`); verify the driver contract test under both runtimes
-- [ ] 3.2 Typed repository (calls, ratings, agent_state, passes with single-running unique index, notifications); verify unique-constraint, expiry and transaction tests
-- [ ] 3.3 Owner-only permissions and git-work-tree refusal; verify "File permissions" and "Database inside a git work tree" tests
+- [x] 3.1 SQLite driver for bun:sqlite and node:sqlite plus migrations (`PRAGMA user_version`); verify the driver contract test under both runtimes
+- [x] 3.2 Typed repository (calls, ratings, agent_state, passes with single-running unique index, notifications); verify unique-constraint, expiry and transaction tests
+- [x] 3.3 Owner-only permissions and git-work-tree refusal; verify "File permissions" and "Database inside a git work tree" tests
 
 ## 4. Git wrapper
 
-- [ ] 4.1 `execFile`-based wrapper: worktree add on new branch with collision suffix, porcelain status parsing, scope check, add/commit with trailers, worktree remove without force; verify with temp-repo tests
+- [x] 4.1 `execFile`-based wrapper: worktree add on new branch with collision suffix, porcelain status parsing, scope check, add/commit with trailers, worktree remove without force; verify with temp-repo tests
 
 ## 5. Host adapter: capture and tools
 
