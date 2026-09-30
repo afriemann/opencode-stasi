@@ -39,7 +39,7 @@ export function createPassHost(ctx: Pick<Plugin.Context, "session" | "agent" | "
   const usage = new Map<string, Usage>()
   const passSessionIds = new Set<string>()
 
-  const ancestry = async (sessionId: string): Promise<string | undefined> => {
+  const attribute = async (sessionId: string): Promise<string | undefined> => {
     let current: string | undefined = sessionId
     for (let hop = 0; current !== undefined && hop < MAX_PARENT_HOPS; hop++) {
       const known = passOfSession.get(current)
@@ -49,8 +49,6 @@ export function createPassHost(ctx: Pick<Plugin.Context, "session" | "agent" | "
     }
     return undefined
   }
-
-  const attribute = async (sessionId: string): Promise<string | undefined> => ancestry(sessionId).catch(() => undefined)
 
   async function handle(event: EventEnvelope): Promise<void> {
     const sessionId = event.data?.sessionID
