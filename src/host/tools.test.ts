@@ -1,5 +1,6 @@
 // spec: openspec/changes/subagent-rating-plugin/specs/subagent-rating-capture/spec.md
 // spec: openspec/changes/subagent-rating-plugin/specs/subagent-rating-analysis/spec.md
+// spec: openspec/changes/background-rating-solicitation/specs/subagent-rating-capture/spec.md
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -7,13 +8,16 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, it } from "node:test"
 import { parseConfig, type Config } from "../core/config.ts"
 import { openStore, type Store } from "../store/repo.ts"
-import { createFakeHost } from "./testing/fake-host.ts"
+import { createChildProbe, type ChildProbe } from "./child-probe.ts"
+import { createFakeHost, type FakeHost } from "./testing/fake-host.ts"
 import { rateSubagentTool, registerTools, subagentRatingsTool, UNTRUSTED_WARNING } from "./tools.ts"
 
 let dir: string
 let store: Store
 let tripped: string[]
 let now: number
+let host: FakeHost
+let probe: ChildProbe
 
 const config = (raw: unknown = {}): Config => {
   const parsed = parseConfig(raw)
@@ -21,7 +25,7 @@ const config = (raw: unknown = {}): Config => {
   return parsed.config
 }
 
-const deps = (cfg = config()) => ({ store, config: cfg, now: () => now, onTripped: (id: string) => void tripped.push(id) })
+const deps = (cfg = config()) => ({ store, config: cfg, now: () => now, probe, onTripped: (id: string) => void tripped.push(id) })
 const ctx = { sessionID: "ses_caller", agent: "build" }
 
 const addCall = (id: string, agentId = "explore", version = "v1") =>
@@ -32,8 +36,12 @@ beforeEach(async () => {
   store = await openStore(join(dir, "r.db"))
   tripped = []
   now = 1_000_000
+  host = createFakeHost()
+  host.sessions["c"] = { id: "c", time: { idle: 1 } }
+  probe = createChildProbe(host.port, { timeoutMs: 20 })
 })
 afterEach(() => {
+  probe.dispose()
   store.close()
   rmSync(dir, { recursive: true, force: true })
 })
@@ -102,6 +110,84 @@ describe("rate_subagent stores a validated rating", () => {
     const tool = host.tools.get("rate_subagent")
     assert.equal(tool?.options.codemode, false)
     assert.deepEqual(Object.keys(tool?.input.properties ?? {}), ["call", "score", "comment"])
+  })
+})
+
+describe("Rating requires a finished child", () => {
+  const rate = (id = "c1") => rateSubagentTool(deps()).execute({ call: id, score: 4, comment: "good" }, ctx)
+
+  it("Rating before the subagent finishes is rejected", async () => {
+    addCall("c1")
+    host.sessions["c"] = { id: "c" }
+    await assert.rejects(rate(), /still running.*rate after it finishes/i)
+    host.sessions["c"] = { id: "c", time: { idle: 1 } }
+    host.waitMode["c"] = "pending"
+    await assert.rejects(rate(), /still running/i)
+    assert.equal(store.getCall("c1")?.status, "pending")
+    assert.equal(store.recentRatings("explore", 5).length, 0)
+    host.settleWaits("c")
+    host.waitMode["c"] = "resolve"
+    await new Promise((r) => setImmediate(r))
+    await rate()
+    assert.equal(store.getCall("c1")?.status, "rated")
+  })
+
+  it("Unavailable child state is rejected without leaking host errors", async () => {
+    addCall("c1")
+    host.waitMode["c"] = "reject"
+    await assert.rejects(rate(), (error: Error) => /cannot determine subagent state.*retry later/i.test(error.message) && !/wait failed/.test(error.message))
+    delete host.sessions["c"]
+    await assert.rejects(rate(), /cannot determine/i)
+    assert.equal(store.getCall("c1")?.status, "pending")
+  })
+
+  it("Invalid key never probes the child", async () => {
+    addCall("c1")
+    await assert.rejects(rate("nope"), /unknown call/)
+    await assert.rejects(rateSubagentTool(deps()).execute({ call: "c1", score: 3, comment: "x" }, { sessionID: "ses_other", agent: "build" }))
+    now += 25 * 3_600_000
+    await assert.rejects(rate(), /expired/)
+    await assert.rejects(rate(), /already expired/)
+    assert.deepEqual(host.waitCalls, [])
+  })
+
+  it("Expiry during the probe", async () => {
+    addCall("c1")
+    host.waitMode["c"] = "pending"
+    const attempt = rate()
+    await new Promise((r) => setImmediate(r))
+    now += 25 * 3_600_000
+    host.settleWaits("c")
+    await assert.rejects(attempt, /expired/)
+    assert.equal(store.getCall("c1")?.status, "expired")
+    assert.equal(store.recentRatings("explore", 5).length, 0)
+  })
+
+  it("Unload stops late storage", async () => {
+    addCall("c1")
+    host.waitMode["c"] = "pending"
+    const attempt = rate()
+    await new Promise((r) => setImmediate(r))
+    probe.dispose()
+    await assert.rejects(attempt, /cannot determine/i)
+    assert.equal(store.getCall("c1")?.status, "pending")
+    assert.deepEqual(tripped, [])
+  })
+
+  it("Failed or cancelled child is ratable", async () => {
+    addCall("c1")
+    host.sessions["c"] = { id: "c", time: { idle: 1 } }
+    await rate()
+    assert.equal(store.getCall("c1")?.status, "rated")
+  })
+})
+
+describe("Tool guidance forbids invented keys", () => {
+  it("Description carries the guidance", () => {
+    const { description } = rateSubagentTool(deps())
+    assert.match(description, /never invent a (call )?key/i)
+    assert.match(description, /foreground/i)
+    assert.match(description, /background/i)
   })
 })
 

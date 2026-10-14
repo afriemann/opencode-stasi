@@ -2,7 +2,7 @@
 
 An [opencode](https://opencode.ai) **V2** server plugin that measures how useful subagents are and, when a subagent type keeps scoring badly, proposes a fix for its definition.
 
-1. After every completed foreground `subagent` call, a single line is appended to the result asking the calling agent to rate it with the `rate_subagent` tool (1–5 plus a comment).
+1. After every completed foreground `subagent` call, and at the launch of every background `subagent` call that starts a new child session, a single line is appended to the result asking the calling agent to rate it with the `rate_subagent` tool (1–5 plus a comment).
 2. Ratings and comments are stored locally in SQLite, per subagent type and per agent-definition version.
 3. When a type's recent mean rating falls below a threshold, the plugin starts an unattended **tuning pass**: a session that edits a copy of your agent-definition repository in a git worktree on a new branch and commits the proposal there.
 4. Nothing is ever applied automatically. You review the branch and merge it, or dismiss it.
@@ -34,6 +34,18 @@ Create the configuration file (see below). Without `agentConfigRepo` the plugin 
 | `rate_subagent` `{call, score, comment}` | Called by the agent that made the subagent call. One rating per call, only from the calling session, only while the call is pending (`pendingTtlHours`). |
 | `subagent_ratings` `{agent?, limit?}` | Read-only evidence. Without `agent`: the state of every rated type and any open pass. With `agent`: window statistics and up to 50 recent ratings with comments. Comments are returned inside an `untrusted_comment` field after a fixed warning, because they are text written by other agents. |
 | `subagent_tuning_resolve` `{agent, outcome, confirm}` | Closes an open trip as `accepted` or `dismissed` once you have reviewed the branch. `confirm` must equal the agent id. Only usable from a top-level session, and never by the agent the notice is about. |
+
+## Background subagents
+
+A background launch returns before the work is done, so its `[rate]` line is deferred: it carries the real call key and tells the caller to keep it, read the eventual result or failure report, and rate that work rather than the launch acknowledgement. `rate_subagent` rejects a rating while the child is still running (retry later) and when the child's state cannot be determined. It accepts a rating once the child has finished an execution, including failed or cancelled ones.
+
+Limits:
+
+- The check is "the child has ended an execution and is idle", so a child that is idle between turns counts as finished.
+- `pendingTtlHours` runs from launch, so a child that runs longer than that cannot be rated.
+- The plugin cannot verify that the caller read the result.
+- A background launch that continues an existing child session is not rated. Foreground continuations still are.
+- The check waits at most one second per attempt and keeps at most 128 unresolved waits, because the host's wait cannot be aborted. Neither is configurable.
 
 ## Configuration
 

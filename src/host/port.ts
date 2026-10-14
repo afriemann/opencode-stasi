@@ -38,6 +38,8 @@ export interface SessionInfo {
   readonly id: string
   readonly parentID?: string | undefined
   readonly metadata?: Readonly<Record<string, unknown>> | undefined
+  /** `idle` is set once an execution of the session has ended. */
+  readonly time?: { readonly idle?: number | undefined } | undefined
 }
 
 /** The slice of `Plugin.Context` the capture and tool modules use; fakes implement this. */
@@ -51,6 +53,8 @@ export interface HostPort {
   }
   readonly session: {
     get(input: { readonly sessionID: Session.ID }): Promise<SessionInfo>
+    /** Resolves once the session is idle (immediately if it already is). Cannot be aborted. */
+    wait(input: { readonly sessionID: Session.ID }): Promise<void>
   }
 }
 
