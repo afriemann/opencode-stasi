@@ -4,6 +4,7 @@ import { defaultConfigPath, defaultDbPath, loadConfig } from "./config-file.ts"
 import { createLogger } from "./logger.ts"
 import { createGit } from "./git/git.ts"
 import { createCaptureHook } from "./host/capture.ts"
+import { createChildProbe } from "./host/child-probe.ts"
 import { createLineageCheck } from "./host/lineage.ts"
 import { createPassHost } from "./host/pass-host.ts"
 import { asHostPort } from "./host/port.ts"
@@ -78,7 +79,8 @@ export default Plugin.define({
       if (!passive) void runner.drain().catch((error: unknown) => log("improvement pass failed", error))
     }
 
-    const toolDeps = { store, config, now, onTripped: startPasses, info }
+    const probe = createChildProbe(port)
+    const toolDeps = { store, config, now, probe, onTripped: startPasses, info }
     await registerTools(port, [
       rateSubagentTool(toolDeps),
       subagentRatingsTool(toolDeps),
@@ -112,6 +114,7 @@ export default Plugin.define({
     return () => {
       info("unloading")
       stop.abort()
+      probe.dispose()
       store.close()
     }
   },

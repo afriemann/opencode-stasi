@@ -79,12 +79,33 @@ describe("Rating request injection", () => {
     assert.match(String((event as { result: { content: string } }).result.content), /^done\n\n\[rate\] /)
   })
 
+  it("New-child background launch is solicited", async () => {
+    const event = subagentCompleted("call_bg", { status: "running" })
+    await hook()(event)
+    assert.match(text(event), /rate_subagent \{call:\\"call_bg\\"/)
+    assert.match(text(event), /eventual result/)
+    assert.match(text(event), /Never invent a call key/)
+    assert.equal(store.getCall("call_bg")?.childSessionId, "ses_child")
+    assert.equal(store.getCall("call_bg")?.status, "pending")
+  })
+
   it("Background call is not solicited", async () => {
-    const event = subagentCompleted("call_2", { status: "running" })
+    const event = subagentCompleted("call_2", { status: "running", inputSessionID: "ses_child" })
     const before = text(event)
     await hook()(event)
     assert.equal(text(event), before)
     assert.equal(store.getCall("call_2"), undefined)
+  })
+
+  it("keeps soliciting a foreground continuation of an existing child", async () => {
+    await hook()(subagentCompleted("call_fc", { inputSessionID: "ses_child" }))
+    assert.equal(store.getCall("call_fc")?.status, "pending")
+  })
+
+  it("shares sampling with the background path", async () => {
+    const event = subagentCompleted("call_bs", { status: "running" })
+    await hook(0)(event)
+    assert.equal(store.getCall("call_bs"), undefined)
   })
 
   it("Errored call is not solicited", async () => {

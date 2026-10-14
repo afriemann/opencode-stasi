@@ -33,6 +33,13 @@ export interface RatingRow {
   readonly createdAt: number
   readonly comment: string
 }
+export interface PreflightInput {
+  readonly callId: string
+  readonly callerSessionId: string
+  readonly pendingTtlMs: number
+  readonly now: number
+}
+export type PreflightResult = { readonly ok: true; readonly call: CallRow } | { readonly ok: false; readonly error: string }
 export type SubmitResult = { readonly ok: true } | { readonly ok: false; readonly error: string }
 
 export type PassStatus = "running" | "committed" | "no_change" | "notify_only" | "failed" | "failed_scope" | "failed_commit" | "interrupted"
@@ -68,6 +75,8 @@ export interface PassRow {
 export interface Store {
   recordCall(call: CallInput): void
   getCall(callId: string): CallRow | undefined
+  /** Checks that the call exists, belongs to the caller, is pending and unexpired; marks an expired call expired. Reserves nothing. */
+  preflightRating(input: PreflightInput): PreflightResult
   submitRating(input: RatingInput): SubmitResult
   /** Newest first. */
   recentRatings(agentId: string, limit: number): RatingRow[]
@@ -169,18 +178,25 @@ function createStore(db: Driver): Store {
       }
     },
 
+    preflightRating(input) {
+      const call = this.getCall(input.callId)
+      if (!call) return { ok: false, error: `unknown call id ${input.callId}` }
+      if (call.callerSessionId !== input.callerSessionId) return { ok: false, error: "call was not made by this session" }
+      if (call.status !== "pending") return { ok: false, error: `call already ${call.status}` }
+      if (input.now - call.createdAt > input.pendingTtlMs) {
+        db.run("UPDATE calls SET status = 'expired' WHERE call_id = ?", call.callId)
+        return { ok: false, error: "call expired: ratings must be submitted promptly" }
+      }
+      return { ok: true, call }
+    },
+
     submitRating(input) {
       const invalid = validateRating({ score: input.score, comment: input.comment }, input.commentMax)
       if (invalid) return { ok: false, error: invalid }
       return db.transaction<SubmitResult>(() => {
-        const call = this.getCall(input.callId)
-        if (!call) return { ok: false, error: `unknown call id ${input.callId}` }
-        if (call.callerSessionId !== input.callerSessionId) return { ok: false, error: "call was not made by this session" }
-        if (call.status !== "pending") return { ok: false, error: `call already ${call.status}` }
-        if (input.now - call.createdAt > input.pendingTtlMs) {
-          db.run("UPDATE calls SET status = 'expired' WHERE call_id = ?", call.callId)
-          return { ok: false, error: "call expired: ratings must be submitted promptly" }
-        }
+        const checked = this.preflightRating(input)
+        if (!checked.ok) return checked
+        const { call } = checked
         db.run(
           "INSERT INTO ratings (call_id, agent_id, agent_version, score, comment, caller_session_id, child_session_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
           call.callId, call.agentId, call.agentVersion, input.score, input.comment, call.callerSessionId, call.childSessionId, input.now,

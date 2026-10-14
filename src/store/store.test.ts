@@ -133,3 +133,29 @@ describe("agent state and passes", () => {
     assert.equal(store.markNotified("awaiting:explore", "s2", 3), true)
   })
 })
+
+describe("rating preflight", () => {
+  const query = (callId: string, over: { callerSessionId?: string; now?: number } = {}) =>
+    store.preflightRating({ callId, callerSessionId: over.callerSessionId ?? "ses_caller", pendingTtlMs: DAY, now: over.now ?? 2000 })
+
+  it("returns the pending call without changing it", () => {
+    store.recordCall(call("c1"))
+    const result = query("c1")
+    assert.ok(result.ok && result.call.childSessionId === "ses_child")
+    assert.equal(store.getCall("c1")?.status, "pending")
+  })
+
+  it("rejects unknown, foreign and rated calls", () => {
+    store.recordCall(call("c1"))
+    assert.deepEqual(query("nope"), { ok: false, error: "unknown call id nope" })
+    assert.deepEqual(query("c1", { callerSessionId: "ses_other" }), { ok: false, error: "call was not made by this session" })
+    store.submitRating({ callId: "c1", callerSessionId: "ses_caller", score: 3, comment: "x", commentMax: 500, pendingTtlMs: DAY, now: 2000 })
+    assert.deepEqual(query("c1"), { ok: false, error: "call already rated" })
+  })
+
+  it("marks an expired call expired", () => {
+    store.recordCall(call("c1"))
+    assert.equal(query("c1", { now: 1000 + DAY + 1 }).ok, false)
+    assert.equal(store.getCall("c1")?.status, "expired")
+  })
+})

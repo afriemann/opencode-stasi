@@ -1,7 +1,9 @@
 import type { Config } from "../core/config.ts"
 import { windowStats } from "../core/stats.ts"
+import { validateRating } from "../core/validate.ts"
 import { evaluateAgent } from "../evaluate.ts"
 import type { Store } from "../store/repo.ts"
+import type { ChildProbe } from "./child-probe.ts"
 import type { HostPort, ToolDefinition } from "./port.ts"
 
 const HOUR_MS = 3_600_000
@@ -16,10 +18,15 @@ export interface ToolDeps {
   readonly store: Store
   readonly config: Config
   readonly now: () => number
+  /** Decides whether a call's child has finished before a rating is accepted. */
+  readonly probe: ChildProbe
   /** Called when a rating newly trips an agent type. Must not throw. */
   readonly onTripped: (agentId: string) => void
   readonly info?: (message: string) => void
 }
+
+const STILL_RUNNING = "Subagent still running; rate after it finishes."
+const STATE_UNAVAILABLE = "Cannot determine subagent state; retry later."
 
 const text = (content: string) => ({ content })
 
@@ -28,7 +35,8 @@ export function rateSubagentTool(deps: ToolDeps): ToolDefinition {
   return {
     name: "rate_subagent",
     description:
-      "Rate a finished subagent call. Use it once, right after a result that ended with a [rate] line, passing the call key from that line. " +
+      "Rate a finished subagent call. Use it once per call, passing the call key from a [rate] line: either on a finished foreground result, or on the launch result of a background subagent, rated only after you have read its eventual result or failure report. " +
+      "Never invent a call key or use a session id; a rating for a subagent that is still running is rejected, so retry after it finishes. " +
       `Score 1-5 (1 unusable/redo, 2 major rework, 3 usable with fixes, 4 good and used as-is, 5 excellent) and a short comment (max ${config.commentMaxChars} chars) ` +
       "saying what was good or lacking. Judge the result against your brief only. Returns a confirmation or an error explaining why the rating was rejected.",
     input: {
@@ -43,6 +51,14 @@ export function rateSubagentTool(deps: ToolDeps): ToolDefinition {
     options: { codemode: false },
     async execute(input: { call?: unknown; score?: unknown; comment?: unknown }, context) {
       if (typeof input.call !== "string") throw new Error("call must be the call key from the [rate] line")
+      const invalid = validateRating({ score: input.score, comment: input.comment }, config.commentMaxChars)
+      if (invalid) throw new Error(invalid)
+      const ttl = config.pendingTtlHours * HOUR_MS
+      const checked = store.preflightRating({ callId: input.call, callerSessionId: context.sessionID, pendingTtlMs: ttl, now: deps.now() })
+      if (!checked.ok) throw new Error(checked.error)
+      const state = await deps.probe.probe(checked.call.childSessionId)
+      if (state === "running") throw new Error(STILL_RUNNING)
+      if (state === "unavailable") throw new Error(STATE_UNAVAILABLE)
       const now = deps.now()
       const result = store.submitRating({
         callId: input.call,
@@ -50,7 +66,7 @@ export function rateSubagentTool(deps: ToolDeps): ToolDefinition {
         score: input.score as number,
         comment: input.comment as string,
         commentMax: config.commentMaxChars,
-        pendingTtlMs: config.pendingTtlHours * HOUR_MS,
+        pendingTtlMs: ttl,
         now,
       })
       if (!result.ok) throw new Error(result.error)
