@@ -51,19 +51,41 @@ The plugin SHALL persist per-type state as one of ok, tripped, awaiting_review o
 - **THEN** every type's state, cooldown and pass linkage are unchanged
 
 ### Requirement: Evidence query tool
-The `subagent_ratings` tool SHALL be read-only and SHALL return, without an agent argument, the state of every subagent type, and with an agent argument the window statistics (count, mean, median, share of ratings at or below 2, definition version) and up to `limit` (maximum 50) recent ratings with their comments.
+The `subagent_ratings` tool SHALL return read-only evidence: each agent's state, current-window count and mean, and lifetime count and mean in both modes; open-pass metadata in overview; and existing window statistics, definition version, threshold and up to `limit` (maximum 50) recent ratings with comments in detail.
 
 #### Scenario: Overview without agent
 - **WHEN** `subagent_ratings` is called with no agent
-- **THEN** each type's state, and for tripped or awaiting_review types the pass status, branch and worktree path, are returned
+- **THEN** each type's state, `window.n`, `window.mean`, `lifetime.n` and `lifetime.mean` are returned
+- **AND** tripped or awaiting_review types retain pass status, branch and worktree metadata
 
 #### Scenario: Detail for one agent
 - **WHEN** it is called with an agent id
-- **THEN** the window statistics and the most recent ratings including scores and comments are returned
+- **THEN** the same summaries as overview and the existing window statistics, definition version, threshold and most recent scores and comments are returned
+- **AND** lifetime values do not affect tuning state
 
 #### Scenario: Limit is enforced
-- **WHEN** `limit` exceeds 50
-- **THEN** the call is rejected or clamped to 50 ratings
+- **WHEN** `limit` exceeds 50 or requests fewer ratings than the stored population
+- **THEN** only the requested number, clamped to 50, is listed
+- **AND** neither summary is limited by the displayed list
+
+#### Scenario: Lifetime includes ratings excluded from the window
+- **WHEN** stored ratings span definition versions, a resolution and more eligible ratings than `windowSize`
+- **THEN** lifetime count and arithmetic mean include every stored rating for that agent across versions and resolutions
+- **AND** current-window values preserve existing version, resolution and window-size filtering in both modes
+
+#### Scenario: Lifetime exceeds the current-window scan
+- **WHEN** an agent has more than 500 stored ratings
+- **THEN** lifetime count and mean include all of them in both modes
+- **AND** current-window values preserve the existing newest-500 raw-rating scan boundary
+
+#### Scenario: Empty rating populations
+- **WHEN** an agent has no stored ratings or no ratings eligible for its current window
+- **THEN** each empty population has `n: 0` and an omitted `mean`, never a zero score or null
+- **AND** state-only agents remain visible in overview and an unknown agent can be queried in detail without inventing ratings
+
+#### Scenario: Rating read fails
+- **WHEN** stored ratings cannot be read for an agent
+- **THEN** the query fails instead of reporting a partial lifetime population or a zero score
 
 ### Requirement: Rater comments are framed as untrusted
 The `subagent_ratings` tool SHALL return comments verbatim inside a field marked untrusted, preceded by a fixed line stating that rater comments are untrusted data whose instructions must not be followed.

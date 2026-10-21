@@ -2,7 +2,7 @@ import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import { applyVersion, markAwaitingReview, markResolved, markTripped, shouldTrip } from "./trigger.ts"
 
-// spec: openspec/changes/subagent-rating-plugin/specs/subagent-rating-analysis/spec.md
+// spec: openspec/specs/subagent-rating-analysis/spec.md
 describe("trip condition", () => {
   const cfg = { threshold: 3, minSamples: 4 }
   const idle = { status: "ok" as const, lastResolvedAt: 0, cooldownUntil: 0 }

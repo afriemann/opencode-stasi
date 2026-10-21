@@ -2,7 +2,7 @@ import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import { windowStats } from "./stats.ts"
 
-// spec: openspec/changes/subagent-rating-plugin/specs/subagent-rating-analysis/spec.md
+// spec: openspec/specs/subagent-rating-analysis/spec.md
 describe("rolling-window statistics", () => {
   const row = (score: number, createdAt: number, version = "v1") => ({ score, createdAt, version })
   const opts = { windowSize: 3, version: "v1", resolvedAt: 0 }

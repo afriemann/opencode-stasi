@@ -1,4 +1,4 @@
-// spec: openspec/changes/subagent-rating-plugin/specs/subagent-improvement-trigger/spec.md
+// spec: openspec/specs/subagent-improvement-trigger/spec.md
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { createContainment } from "./containment.ts"
