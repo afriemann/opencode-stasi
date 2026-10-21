@@ -32,8 +32,16 @@ Create the configuration file (see below). Without `agentConfigRepo` the plugin 
 | Tool | Purpose |
 |---|---|
 | `rate_subagent` `{call, score, comment}` | Called by the agent that made the subagent call. One rating per call, only from the calling session, only while the call is pending (`pendingTtlHours`). |
-| `subagent_ratings` `{agent?, limit?}` | Read-only evidence. Without `agent`: the state of every rated type and any open pass. With `agent`: window statistics and up to 50 recent ratings with comments. Comments are returned inside an `untrusted_comment` field after a fixed warning, because they are text written by other agents. |
+| `subagent_ratings` `{agent?, limit?}` | Read-only evidence. Both modes include current-window and lifetime average scores and vote counts. Without `agent`: summaries, state and any open pass for each type. With `agent`: additional window statistics and up to `limit` recent ratings (default 10, maximum 50) with comments. Comments are returned inside an `untrusted_comment` field after a fixed warning, because they are text written by other agents. |
 | `subagent_tuning_resolve` `{agent, outcome, confirm}` | Closes an open trip as `accepted` or `dismissed` once you have reviewed the branch. `confirm` must equal the agent id. Only usable from a top-level session, and never by the agent the notice is about. |
+
+Rating summaries use the same field names in overview and detail:
+
+- `window.n` and `window.mean`: vote count and arithmetic average score (1–5) for the current window. From the newest 500 stored ratings, keep those for the newest rated definition version and strictly after the last resolution, then take the newest `windowSize` eligible ratings. This preserves the tuning window's scan boundary.
+- `lifetime.n` and `lifetime.mean`: count and average across **all stored ratings for that agent**, including older definition versions and ratings before resolutions. Lifetime statistics are informational and never affect tuning decisions.
+- Empty populations have `n: 0` with the `mean` key omitted, not a zero score. Agents with only a state record remain in the overview; an unknown agent queried in detail has empty summaries and no ratings.
+
+The detail list limit does not affect either summary. Lifetime reporting reads the full stored history for each requested agent (all listed agents in overview), so query time and memory grow with history size.
 
 ## Background subagents
 

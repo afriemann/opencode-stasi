@@ -198,13 +198,33 @@ describe("Evidence query tool", () => {
     await rateSubagentTool(deps(config({ minSamples: 100 }))).execute({ call: id, score, comment }, ctx)
   }
 
+  const record = (id: string, score: number, agent = "explore", version = "v1") => {
+    addCall(id, agent, version)
+    now += 10
+    assert.deepEqual(store.submitRating({ callId: id, callerSessionId: ctx.sessionID, score, comment: "evidence", commentMax: 500, pendingTtlMs: 1000, now }), { ok: true })
+  }
+
+  const query = async (input: { agent?: string; limit?: number } = {}, cfg = config()) => {
+    const res = (await subagentRatingsTool(deps(cfg)).execute(input, ctx)).content
+    return JSON.parse(res.slice(res.indexOf("{")))
+  }
+
   it("Overview without agent", async () => {
     await rate("a", 4, "fine")
-    store.saveState("explore", { status: "tripped", trippedVersion: "v1", lastResolvedAt: 0, cooldownUntil: 0 })
-    const id = store.startPass({ agentId: "explore", agentVersion: "v1", tunerId: "t", tunerVersion: "tv", now }) as string
-    store.finishPass(id, { status: "notify_only", now, reason: "agentConfigRepo unset" })
-    const out = JSON.parse((await subagentRatingsTool(deps()).execute({}, ctx)).content)
-    assert.deepEqual(out.agents, [{ agent: "explore", state: "tripped", pass: { status: "notify_only", reason: "agentConfigRepo unset" } }])
+    for (const state of ["tripped", "awaiting_review"] as const) {
+      store.saveState("explore", { status: state, trippedVersion: "v1", lastResolvedAt: 0, cooldownUntil: 0 })
+      const id = store.startPass({ agentId: "explore", agentVersion: "v1", tunerId: "t", tunerVersion: "tv", now: ++now }) as string
+      const pass = state === "tripped"
+        ? { status: "notify_only", reason: "agentConfigRepo unset" } as const
+        : { status: "committed", branch: "agent-tuning/explore", worktreePath: "worktrees/explore" } as const
+      store.finishPass(id, { ...pass, now })
+      const out = await query()
+      assert.deepEqual(out.agents, [{
+        agent: "explore", state, window: { n: 1, mean: 4 }, lifetime: { n: 1, mean: 4 },
+        pass: state === "tripped" ? { status: "notify_only", reason: "agentConfigRepo unset" }
+          : { status: "committed", branch: "agent-tuning/explore", worktree: "worktrees/explore" },
+      }])
+    }
   })
 
   it("Detail for one agent", async () => {
@@ -214,6 +234,13 @@ describe("Evidence query tool", () => {
     const body = JSON.parse(res.slice(res.indexOf("{")))
     assert.equal(body.window.n, 2)
     assert.equal(body.window.mean, 3)
+    assert.equal(body.window.median, 3)
+    assert.equal(body.window.shareLow, 0.5)
+    assert.deepEqual(body.lifetime, { n: 2, mean: 3 })
+    assert.equal(body.version, "v1")
+    assert.equal(body.threshold, config().threshold)
+    assert.deepEqual((await query()).agents[0].window, { n: 2, mean: 3 })
+    assert.deepEqual((await query()).agents[0].lifetime, body.lifetime)
     assert.deepEqual(body.ratings.map((r: { untrusted_comment: string }) => r.untrusted_comment), ["poor", "great"])
   })
 
@@ -222,8 +249,77 @@ describe("Evidence query tool", () => {
     const tool = subagentRatingsTool(deps())
     for (const limit of [500, 5]) {
       const res = (await tool.execute({ agent: "explore", limit }, ctx)).content
-      assert.equal(JSON.parse(res.slice(res.indexOf("{"))).ratings.length, Math.min(limit, 50))
+      const body = JSON.parse(res.slice(res.indexOf("{")))
+      assert.equal(body.ratings.length, Math.min(limit, 50))
+      assert.deepEqual(body.lifetime, { n: 55, mean: 3 })
+      assert.equal(body.window.n, config().windowSize)
+      assert.equal(body.window.mean, 3)
     }
+  })
+
+  it("Lifetime includes ratings excluded from the window", async () => {
+    record("v-old", 1, "versioned", "old")
+    record("v-new", 5, "versioned", "current")
+    record("r-old", 2, "resolved")
+    store.saveState("resolved", { status: "resolved", lastResolvedAt: now, cooldownUntil: 0 })
+    record("r-new", 4, "resolved")
+    for (const score of [1, 3, 5]) record(`w${score}`, score, "windowed")
+    const cfg = config({ windowSize: 2 })
+    const overview = await query({}, cfg)
+    for (const [agent, n, mean, total] of [["versioned", 1, 5, 2], ["resolved", 1, 4, 2], ["windowed", 2, 4, 3]] as const) {
+      const before = store.getState(agent)
+      const detail = await query({ agent }, cfg)
+      const entry = overview.agents.find((row: { agent: string }) => row.agent === agent)
+      assert.deepEqual(entry.window, { n, mean })
+      assert.equal(detail.window.n, n)
+      assert.equal(detail.window.mean, mean)
+      assert.deepEqual(entry.lifetime, { n: total, mean: 3 })
+      assert.deepEqual(detail.lifetime, entry.lifetime)
+      assert.deepEqual(store.getState(agent), before)
+    }
+  })
+
+  it("Lifetime exceeds the current-window scan", async () => {
+    record("old-current", 1, "explore", "current")
+    for (let i = 0; i < 500; i++) record(`old${i}`, 3, "explore", "old")
+    record("new-current", 5, "explore", "current")
+    const entry = (await query()).agents[0]
+    const detail = await query({ agent: "explore", limit: 1 })
+    assert.deepEqual(entry.lifetime, { n: 502, mean: 3 })
+    assert.deepEqual(detail.lifetime, entry.lifetime)
+    assert.deepEqual(entry.window, { n: 1, mean: 5 })
+    assert.equal(detail.window.n, 1)
+    assert.equal(detail.window.mean, 5)
+    assert.equal(detail.ratings.length, 1)
+    assert.equal(detail.ratings[0].score, 5)
+  })
+
+  it("Empty rating populations", async () => {
+    const resolved = { status: "resolved", lastResolvedAt: now, cooldownUntil: 0 } as const
+    store.saveState("state-only", resolved)
+    record("rated", 4)
+    store.saveState("explore", { ...resolved, lastResolvedAt: now })
+    const overview = await query()
+    for (const agent of ["state-only", "explore", "unknown"]) {
+      const detail = await query({ agent })
+      assert.ok(detail.window, "empty histories still expose a window count")
+      assert.equal(detail.window.n, 0)
+      assert.equal(Object.hasOwn(detail.window, "mean"), false)
+      const expected = agent === "explore" ? { n: 1, mean: 4 } : { n: 0 }
+      assert.deepEqual(detail.lifetime, expected)
+      if (agent !== "unknown") {
+        const entry = overview.agents.find((row: { agent: string }) => row.agent === agent)
+        assert.deepEqual(entry.window, { n: 0 })
+        assert.deepEqual(entry.lifetime, expected)
+      } else assert.deepEqual(detail.ratings, [])
+    }
+    assert.equal(overview.agents.some((row: { agent: string }) => row.agent === "unknown"), false)
+  })
+
+  it("Rating read fails", async () => {
+    record("rated", 4)
+    const tool = subagentRatingsTool({ ...deps(), store: { ...store, recentRatings: () => { throw new Error("rating read failed") } } })
+    for (const input of [{}, { agent: "explore" }]) await assert.rejects(tool.execute(input, ctx), /rating read failed/)
   })
 
   it("Comment containing an instruction", async () => {
