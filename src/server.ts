@@ -7,6 +7,8 @@ import { createCaptureHook } from "./host/capture.ts"
 import { createChildProbe } from "./host/child-probe.ts"
 import { createLineageCheck } from "./host/lineage.ts"
 import { createPassHost } from "./host/pass-host.ts"
+import { createParentCapture } from "./host/parent-capture.ts"
+import { parentRatingsTool, rateParentTool } from "./host/parent-tools.ts"
 import { asHostPort } from "./host/port.ts"
 import { createReminder } from "./host/reminder.ts"
 import { subagentTuningResolveTool } from "./host/resolve.ts"
@@ -80,13 +82,19 @@ export default Plugin.define({
     }
 
     const probe = createChildProbe(port)
+    const parentCapture = createParentCapture({ port, store, config, now, passSessionIds: () => passHost.passSessionIds, passive, log })
+    const parentDeps = { store, config, capture: parentCapture, now, log }
     const toolDeps = { store, config, now, probe, onTripped: startPasses, info }
     await registerTools(port, [
+      rateParentTool(parentDeps),
+      parentRatingsTool(parentDeps),
       rateSubagentTool(toolDeps),
       subagentRatingsTool(toolDeps),
       subagentTuningResolveTool({ store, config, git, now, isRootOutsidePass }),
     ])
     await ctx.tool.hook("execute.after", createCaptureHook({ port, store, config, inPassLineage, now, log, info }) as never)
+    await port.tool.hook("execute.before", parentCapture.before)
+    await port.session.hook("prompt", parentCapture.prompt)
 
     if (config.pass.agent === undefined) await registerBuiltinTuner(ctx.agent, BUILTIN_TUNER_ID, config.pass.tools)
 
@@ -109,12 +117,13 @@ export default Plugin.define({
     const stop = new AbortController()
     void passHost.watchEvents(stop.signal)
     startPasses()
-    info(`ready: tools rate_subagent, subagent_ratings, subagent_tuning_resolve registered; tuner ${config.pass.agent ?? BUILTIN_TUNER_ID}`)
+    info(`ready: tools rate_parent, parent_ratings, rate_subagent, subagent_ratings, subagent_tuning_resolve registered; tuner ${config.pass.agent ?? BUILTIN_TUNER_ID}`)
 
     return () => {
       info("unloading")
       stop.abort()
       probe.dispose()
+      parentCapture.dispose()
       store.close()
     }
   },

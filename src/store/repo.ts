@@ -42,6 +42,26 @@ export interface PreflightInput {
 export type PreflightResult = { readonly ok: true; readonly call: CallRow } | { readonly ok: false; readonly error: string }
 export type SubmitResult = { readonly ok: true } | { readonly ok: false; readonly error: string }
 
+export interface ParentCall {
+  readonly callId: string
+  readonly parentSessionId: string
+  readonly parentAgent: string
+  readonly parentMessageId: string
+  readonly childSessionId: string
+  readonly childMessageId: string
+  readonly createdAt: number
+  readonly expiresAt: number
+}
+export interface ParentRequest extends ParentCall {
+  readonly key: string
+  readonly rated: number
+}
+export interface ParentEvidence {
+  readonly summaries: { readonly agent: string; readonly n: number; readonly mean: number }[]
+  readonly ratings: { readonly agent: string; readonly score: number; readonly comment: string; readonly createdAt: number }[]
+}
+const MAX_PARENT_PENDING = 4096
+
 export type PassStatus = "running" | "committed" | "no_change" | "notify_only" | "failed" | "failed_scope" | "failed_commit" | "interrupted"
 export interface PassStart {
   readonly agentId: string
@@ -73,6 +93,10 @@ export interface PassRow {
 }
 
 export interface Store {
+  bindParentCall(call: ParentCall, now: number): string | undefined
+  getParentCall(key: string): ParentRequest | undefined
+  submitParentRating(input: { readonly key: string; readonly childSessionId: string; readonly score: number; readonly comment: string; readonly commentMax: number; readonly now: number }): SubmitResult
+  parentEvidence(agent: string | undefined, limit: number): ParentEvidence
   recordCall(call: CallInput): void
   getCall(callId: string): CallRow | undefined
   /** Checks that the call exists, belongs to the caller, is pending and unexpired; marks an expired call expired. Reserves nothing. */
@@ -156,6 +180,55 @@ const toState = (r: StateDbRow): AgentState => ({
 
 function createStore(db: Driver): Store {
   return {
+    bindParentCall(call, now) {
+      return db.transaction(() => {
+        const existing = db.get<{ request_key: string }>("SELECT request_key FROM parent_calls WHERE parent_session_id = ? AND call_id = ?", call.parentSessionId, call.callId)
+        if (existing) {
+          const bound = this.getParentCall(existing.request_key)
+          return bound && bound.childSessionId === call.childSessionId && bound.childMessageId === call.childMessageId && bound.parentMessageId === call.parentMessageId && bound.parentAgent === call.parentAgent ? bound.key : undefined
+        }
+        if (call.expiresAt <= now) return undefined
+        const pending = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM parent_calls WHERE rated = 0 AND expires_at > ?", now)?.n ?? 0
+        if (pending >= MAX_PARENT_PENDING) return undefined
+        const key = randomUUID()
+        db.run("INSERT INTO parent_calls (request_key,call_id,parent_session_id,parent_agent,parent_message_id,child_session_id,child_message_id,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+          key, call.callId, call.parentSessionId, call.parentAgent, call.parentMessageId, call.childSessionId, call.childMessageId, call.createdAt, call.expiresAt)
+        return key
+      })
+    },
+
+    getParentCall(key) {
+      return db.get<ParentRequest>(`SELECT request_key AS key, call_id AS callId, parent_session_id AS parentSessionId, parent_agent AS parentAgent,
+        parent_message_id AS parentMessageId, child_session_id AS childSessionId, child_message_id AS childMessageId,
+        created_at AS createdAt, expires_at AS expiresAt, rated FROM parent_calls WHERE request_key = ?`, key)
+    },
+
+    submitParentRating(input) {
+      const invalid = validateRating(input, input.commentMax)
+      if (invalid) return { ok: false, error: invalid }
+      return db.transaction<SubmitResult>(() => {
+        const call = this.getParentCall(input.key)
+        if (!call) return { ok: false, error: "unknown parent request" }
+        if (call.childSessionId !== input.childSessionId) return { ok: false, error: "request belongs to another bound child session" }
+        if (call.rated) return { ok: false, error: "parent request already rated" }
+        if (input.now >= call.expiresAt) return { ok: false, error: "parent request expired" }
+        db.run("INSERT INTO parent_votes (request_key,score,comment,created_at) VALUES (?,?,?,?)", input.key, input.score, input.comment, input.now)
+        db.run("UPDATE parent_calls SET rated = 1 WHERE request_key = ?", input.key)
+        return { ok: true }
+      })
+    },
+
+    parentEvidence(agent, limit) {
+      const filter = agent ?? null
+      const count = Math.min(50, Math.max(1, Number.isFinite(limit) ? Math.trunc(limit) : 10))
+      return db.transaction(() => ({
+        summaries: db.all<{ agent: string; n: number; mean: number }>(`SELECT c.parent_agent AS agent, COUNT(*) AS n, AVG(v.score) AS mean
+          FROM parent_votes v JOIN parent_calls c USING(request_key) WHERE (? IS NULL OR c.parent_agent = ?) GROUP BY c.parent_agent ORDER BY c.parent_agent`, filter, filter),
+        ratings: db.all<{ agent: string; score: number; comment: string; createdAt: number }>(`SELECT c.parent_agent AS agent,v.score,v.comment,v.created_at AS createdAt
+          FROM parent_votes v JOIN parent_calls c USING(request_key) WHERE (? IS NULL OR c.parent_agent = ?) ORDER BY v.created_at DESC,v.id DESC LIMIT ?`, filter, filter, count),
+      }))
+    },
+
     recordCall: (c) => {
       db.run(
         "INSERT OR IGNORE INTO calls (call_id, caller_session_id, caller_agent, child_session_id, agent_id, agent_version, status, created_at) VALUES (?,?,?,?,?,?,'pending',?)",

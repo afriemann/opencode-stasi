@@ -1,4 +1,7 @@
-import type { HostPort, SessionInfo, ToolAfterEvent, ToolDefinition } from "../port.ts"
+import type { HostPort, PromptEvent, SessionInfo, ToolAfterEvent, ToolBeforeEvent, ToolDefinition } from "../port.ts"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 type AfterHandler = (event: ToolAfterEvent) => Promise<void> | void
 
@@ -7,6 +10,9 @@ export interface FakeHost {
   readonly tools: Map<string, ToolDefinition>
   /** Runs every registered `execute.after` handler, as the host would. */
   fireAfter(event: ToolAfterEvent): Promise<void>
+  fireBefore(event: ToolBeforeEvent): Promise<void>
+  firePrompt(event: PromptEvent): Promise<void>
+  context(configPath: string): unknown
   agents: Record<string, Record<string, unknown> & { id: string }>
   sessions: Record<string, SessionInfo>
   /**
@@ -28,10 +34,23 @@ interface Waiter {
 
 export function createFakeHost(): FakeHost {
   const handlers: AfterHandler[] = []
+  const before: ((event: ToolBeforeEvent) => Promise<void> | void)[] = []
+  const prompts: ((event: PromptEvent) => Promise<void> | void)[] = []
   const tools = new Map<string, ToolDefinition>()
   const pending = new Map<string, Waiter[]>()
   const host: FakeHost = {
     tools,
+    context: (configPath) => ({
+      ...host.port,
+      options: { configPath },
+      location: { directory: "/work/project" },
+      agent: { ...host.port.agent, transform: async () => undefined },
+      session: Object.assign(host.port.session, { synthetic: async () => undefined }),
+      permission: { hook: async () => undefined },
+      event: { async *subscribe() {} },
+    }),
+    fireBefore: async (event) => { for (const handler of before) await handler(event) },
+    firePrompt: async (event) => { for (const handler of prompts) await handler(event) },
     agents: {},
     sessions: {},
     waitMode: {},
@@ -48,7 +67,10 @@ export function createFakeHost(): FakeHost {
     },
     port: {
       tool: {
-        hook: async (_name, callback) => void handlers.push(callback),
+        hook: async (name: string, callback: unknown) => {
+          if (name === "execute.before") before.push(callback as (typeof before)[number])
+          else handlers.push(callback as AfterHandler)
+        },
         transform: async (callback) => void callback({ add: (tool) => void tools.set(tool.name, tool) }),
       },
       agent: {
@@ -59,6 +81,9 @@ export function createFakeHost(): FakeHost {
         },
       },
       session: {
+        hook: async (name: string, callback: unknown) => {
+          if (name === "prompt") prompts.push(callback as (typeof prompts)[number])
+        },
         get: async ({ sessionID }) => {
           const info = host.sessions[sessionID]
           if (!info) throw new Error(`unknown session ${sessionID}`)
@@ -100,6 +125,37 @@ export function subagentCompleted(id: string, overrides: { status?: "completed" 
       output: { sessionID: "ses_child", status: overrides.status ?? "completed", output: "done" },
       content: [{ type: "text", text: "done" }],
       metadata: {},
+    },
+  }
+}
+
+/** Runs the real plugin against an isolated fake host and private database. */
+export async function setupFakePlugin(setup: (ctx: never) => unknown) {
+  const dir = mkdtempSync(join(tmpdir(), "stasi-parent-"))
+  const dbPath = join(dir, "data", "ratings.db")
+  const configPath = join(dir, "config.json")
+  writeFileSync(configPath, JSON.stringify({ dbPath }))
+  const host = createFakeHost()
+  host.sessions["parent"] = { id: "parent" }
+  host.sessions["child"] = { id: "child", parentID: "parent" }
+  host.sessions["sibling"] = { id: "sibling", parentID: "parent" }
+  host.sessions["unrelated"] = { id: "unrelated" }
+  const cleanup = await setup(host.context(configPath) as never) as (() => void)
+  let closed = false
+  return {
+    host, dbPath,
+    stop() { if (!closed) { cleanup(); closed = true } },
+    dispose() { this.stop(); rmSync(dir, { recursive: true, force: true }) },
+    async delegate(id: string, child = "child", resume = false) {
+      const event: ToolBeforeEvent = {
+        tool: "subagent", sessionID: "parent", agent: "engineer", messageID: `message-${id}`, id,
+        input: { agent: "detective", prompt: `Brief ${id}`, ...(resume ? { sessionID: child } : {}) },
+      }
+      await host.fireBefore(event)
+      const prompt: PromptEvent = { sessionID: child, messageID: `prompt-${id}`, prompt: { text: (event.input as { prompt: string }).prompt } }
+      const correlated = structuredClone(prompt)
+      await host.firePrompt(prompt)
+      return { event, prompt, correlated, key: /\[rate-parent\] rate_parent \{call:"([^"]+)"/.exec(prompt.prompt.text ?? "")?.[1] }
     },
   }
 }
