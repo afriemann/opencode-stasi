@@ -22,6 +22,21 @@ export interface ToolCallContext {
   readonly agent: string
 }
 
+export interface ToolBeforeEvent {
+  readonly tool: string
+  readonly sessionID: string
+  readonly agent: string
+  readonly messageID: string
+  readonly id: string
+  input: unknown
+}
+
+export interface PromptEvent {
+  readonly sessionID: string
+  readonly messageID: string
+  prompt: { text?: string | undefined }
+}
+
 export interface ToolDefinition {
   readonly name: string
   readonly description: string
@@ -45,6 +60,7 @@ export interface SessionInfo {
 /** The slice of `Plugin.Context` the capture and tool modules use; fakes implement this. */
 export interface HostPort {
   readonly tool: {
+    hook(name: "execute.before", callback: (event: ToolBeforeEvent) => Promise<void> | void): Promise<unknown>
     hook(name: "execute.after", callback: (event: ToolAfterEvent) => Promise<void> | void): Promise<unknown>
     transform(callback: (editor: { add(tool: ToolDefinition): void }) => void): Promise<unknown>
   }
@@ -52,6 +68,7 @@ export interface HostPort {
     get(input: { readonly agentID: Agent.ID }): Promise<{ readonly data: Readonly<Record<string, unknown>> & { readonly id: string } }>
   }
   readonly session: {
+    hook(name: "prompt", callback: (event: PromptEvent) => Promise<void> | void): Promise<unknown>
     get(input: { readonly sessionID: Session.ID }): Promise<SessionInfo>
     /** Resolves once the session is idle (immediately if it already is). Cannot be aborted. */
     wait(input: { readonly sessionID: Session.ID }): Promise<void>

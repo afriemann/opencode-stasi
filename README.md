@@ -32,6 +32,8 @@ Create the configuration file (see below). Without `agentConfigRepo` the plugin 
 | Tool | Purpose |
 |---|---|
 | `rate_subagent` `{call, score, comment}` | Called by the agent that made the subagent call. One rating per call, only from the calling session, only while the call is pending (`pendingTtlHours`). |
+| `rate_parent` `{call, score, comment}` | Called by a child using the key in its `[rate-parent]` request. Rates the initial delegation brief, not the result. One integer score 1–5 per request, only from the bound child, before expiry. |
+| `parent_ratings` `{agent?, limit?}` | Read-only, database-wide upward feedback. Returns `summaries` (`agent`, `n`, `mean`) and newest `ratings` (`agent`, `score`, `comment`, `createdAt`) with a fixed untrusted-data warning. Optional `agent` filters parent agent type; comment limit defaults to 10 and is clamped to 1–50. No reader-role restriction outside tuning passes. |
 | `subagent_ratings` `{agent?, limit?}` | Read-only evidence. Both modes include current-window and lifetime average scores and vote counts. Without `agent`: summaries, state and any open pass for each type. With `agent`: additional window statistics and up to `limit` recent ratings (default 10, maximum 50) with comments. Comments are returned inside an `untrusted_comment` field after a fixed warning, because they are text written by other agents. |
 | `subagent_tuning_resolve` `{agent, outcome, confirm}` | Closes an open trip as `accepted` or `dismissed` once you have reviewed the branch. `confirm` must equal the agent id. Only usable from a top-level session, and never by the agent the notice is about. |
 
@@ -42,6 +44,16 @@ Rating summaries use the same field names in overview and detail:
 - Empty populations have `n: 0` with the `mean` key omitted, not a zero score. Agents with only a state record remain in the overview; an unknown agent queried in detail has empty summaries and no ratings.
 
 The detail list limit does not affect either summary. Lifetime reporting reads the full stored history for each requested agent (all listed agents in overview), so query time and memory grow with history size.
+
+### Parent brief feedback
+
+Each eligible delegation, including a resumed request, asks the child to rate its initial brief as its first action: clarity, context, scope and executable instructions. This is **advisory**, not a tool-order or completion gate. A later vote is still accepted before `pendingTtlHours` expires. Overlapping requests have independent keys; an older request remains ratable. Only use keys supplied by `[rate-parent]`, never invent one.
+
+Upward feedback uses `commentMaxChars` and `pendingTtlHours` without new configuration. It stays separate from downward scores, threshold windows and automatic tuning. `agent-engineer` is the usual reader of `parent_ratings`, not a privileged or required identity.
+
+The database may be shared across sessions and projects: any ordinary agent with this tool can read upward comments across that database. Owner-only file permissions are not project isolation. Do not quote briefs, secrets or sensitive values in comments. The plugin stores request identifiers and feedback, not brief text; comments themselves may still reveal sensitive information and reach the querying model's provider. Stored history is retained until you remove the local database while the plugin is stopped; voting expiry does not delete evidence.
+
+If identity verification, storage or safety capacity is unavailable, the plugin omits feedback rather than blocking delegation. Unbound correlation is lost on plugin restart; already-bound requests survive. Improvement-pass sessions cannot submit or query upward feedback. Unknown or incomplete ancestry is ineligible.
 
 ## Background subagents
 
@@ -88,10 +100,12 @@ Customise the built-in tuner by defining an agent with id `subagent-tuner` in yo
 - **Propose-only.** The pass works in a separate worktree on branch `agent-tuning/<agent>-<yyyymmdd>`. The plugin, not the model, commits; it never merges, pushes or edits your live definitions.
 - **Contained.** The pass session only sees `pass.tools`; edits are limited to `allowedPaths` inside the worktree; any permission prompt is auto-denied so it can never hang; time, step and token caps interrupt it. Sessions descended from a pass are never asked to rate.
 - **Shell is not containable.** If you opt in to `shell`, the host can only check command text, so an allowed command can still write elsewhere through its arguments. The plugin compares the status of your config repository's main checkout before and after and warns when it changed. Keep `shellAllow` narrow. The host parses each command of a compound line separately before checking it against these patterns.
-- **Private.** Ratings live in a local database (directory `0700`, file `0600`) and are never sent anywhere by this plugin. Be aware that comments are read by the tuning agent and therefore reach your model provider.
+- **Private-local storage.** Ratings live in a local database (directory `0700`, file `0600`). Downward comments are read by the tuning agent; upward comments are readable by ordinary sessions sharing the database. Tool results reach the querying model provider. The plugin does not export ratings automatically.
 - **Untrusted comments.** Comments are attacker-influenceable input; the query tool frames them as data, and the tuner brief says so.
 
 ## Verification status
+
+Parent-brief feedback is covered by fake-host and SQLite tests, including request binding, resumed requests, single voting, containment and separate evidence. It has not yet been smoke-tested in a live V2 host.
 
 Smoke-tested in a real V2 host: rating capture, `rate_subagent`, `subagent_ratings`, a trip, one improvement pass with the built-in `subagent-tuner` in a fresh worktree (outcome `no_change` with a rationale), the once-per-session reminder, and `subagent_tuning_resolve`. Findings from that run:
 

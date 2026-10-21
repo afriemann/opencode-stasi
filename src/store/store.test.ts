@@ -29,6 +29,46 @@ const call = (id: string) => ({
   createdAt: 1000,
 })
 
+const parentCall = (id: string) => ({
+  callId: id, parentSessionId: "parent", parentAgent: "engineer", parentMessageId: "message",
+  childSessionId: "child", childMessageId: `prompt-${id}`, createdAt: 1000, expiresAt: 2000,
+})
+
+describe("upward persistence", () => {
+  it("binding is idempotent per call and rejects conflicting identities", () => {
+    const input = parentCall("one")
+    const key = store.bindParentCall(input, 1000)
+    assert.ok(key)
+    assert.equal(store.bindParentCall(input, 1000), key)
+    assert.equal(store.bindParentCall({ ...input, childSessionId: "sibling" }, 1000), undefined)
+    assert.equal(store.bindParentCall({ ...input, childMessageId: "other" }, 1000), undefined)
+  })
+
+  it("pending cap bounds currently eligible unrated bindings", () => {
+    for (let n = 0; n < 4096; n++) assert.ok(store.bindParentCall(parentCall(String(n)), 1000))
+    assert.equal(store.bindParentCall(parentCall("overflow"), 1000), undefined)
+    assert.ok(store.bindParentCall({ ...parentCall("later"), createdAt: 3000, expiresAt: 4000 }, 3000))
+  })
+
+  it("Upward votes leave downward scores and state unchanged", async () => {
+    store.recordCall(call("down"))
+    store.submitRating({ callId: "down", callerSessionId: "ses_caller", score: 4, comment: "good", commentMax: 500, pendingTtlMs: DAY, now: 1000 })
+    const downward = store.recentRatings("explore", 10)
+    const key = store.bindParentCall(parentCall("one"), 1000)!
+    store.close()
+    store = await openStore(join(dir, "data", "ratings.db"))
+    const vote = { key, childSessionId: "child", score: 1, comment: "Missing context", commentMax: 500, now: 1500 }
+    assert.equal(store.submitParentRating(vote).ok, true)
+    assert.equal(store.submitParentRating(vote).ok, false)
+    store.close()
+    store = await openStore(join(dir, "data", "ratings.db"))
+    assert.deepEqual(store.parentEvidence(undefined, 10).summaries.map(row => ({ ...row })), [{ agent: "engineer", n: 1, mean: 1 }])
+    assert.deepEqual(store.recentRatings("explore", 10), downward)
+    assert.deepEqual(store.listAgents(), ["explore"])
+    assert.equal(store.getState("engineer").status, "ok")
+  })
+})
+
 describe("storage layout", () => {
   it("File permissions", () => {
     assert.equal(statSync(join(dir, "data")).mode & 0o777, 0o700)

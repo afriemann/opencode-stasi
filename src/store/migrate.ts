@@ -56,6 +56,31 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (notice_key, session_id)
   );
   `,
+  `
+  CREATE TABLE parent_calls (
+    request_key TEXT PRIMARY KEY,
+    call_id TEXT NOT NULL,
+    parent_session_id TEXT NOT NULL,
+    parent_agent TEXT NOT NULL,
+    parent_message_id TEXT NOT NULL,
+    child_session_id TEXT NOT NULL,
+    child_message_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    rated INTEGER NOT NULL DEFAULT 0 CHECK (rated IN (0,1)),
+    UNIQUE(parent_session_id, call_id)
+  );
+  CREATE INDEX parent_pending ON parent_calls(rated, expires_at);
+  CREATE TABLE parent_votes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_key TEXT NOT NULL UNIQUE REFERENCES parent_calls(request_key),
+    score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
+    comment TEXT NOT NULL CHECK (length(comment) >= 1),
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX parent_votes_recent ON parent_votes(created_at DESC, id DESC);
+  CREATE INDEX parent_calls_agent ON parent_calls(parent_agent);
+  `,
 ]
 
 export function migrate(db: Driver): void {
