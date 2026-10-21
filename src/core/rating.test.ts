@@ -4,7 +4,7 @@ import { ratingRequestLine } from "./rubric.ts"
 import { validateRating } from "./validate.ts"
 import { isSampled } from "./sampling.ts"
 
-// spec: openspec/changes/subagent-rating-plugin/specs/subagent-rating-capture/spec.md
+// spec: openspec/specs/subagent-rating-capture/spec.md
 describe("rating request line", () => {
   it("names the call key and the five rubric levels on one line", () => {
     const line = ratingRequestLine("call_123")

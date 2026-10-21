@@ -43,3 +43,5 @@ Pre-archive scan found 18 stale change-directory references in 16 existing test 
 ## Final review
 
 Both reviewers verified frozen source/README diff SHA-256 `12aa2906a29a2651c69e974d1cd9c179c9da34e3de4f560cfec1d3c26258dea7` against base `24e1115`. Code review approves with zero remaining blockers, warnings or suggestions. Plugin-domain review confirms conformance; its empty-summary observation remains explicitly resolved by the approved empty-count contract. All 155 tests, build and existing hooks pass after refinements. Comment-only link fixes are reserved for the archive commit.
+
+User also approved removing the obsolete task-link comment in `scripts/hygiene.test.ts` on 2026-10-21; the archive gate covers both `src` and `scripts` test locations. No test behavior changes.

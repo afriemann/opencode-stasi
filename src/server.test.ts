@@ -1,4 +1,4 @@
-// spec: openspec/changes/subagent-rating-plugin/specs/subagent-improvement-trigger/spec.md
+// spec: openspec/specs/subagent-improvement-trigger/spec.md
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"

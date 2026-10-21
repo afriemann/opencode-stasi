@@ -2,7 +2,7 @@ import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import { parseConfig } from "./config.ts"
 
-// spec: openspec/changes/subagent-rating-plugin/specs/subagent-rating-capture/spec.md
+// spec: openspec/specs/subagent-rating-capture/spec.md
 describe("configuration", () => {
   it("Defaults apply", () => {
     const result = parseConfig({})

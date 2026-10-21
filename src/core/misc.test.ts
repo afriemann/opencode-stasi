@@ -4,7 +4,7 @@ import { isPassLineage } from "./exclusion.ts"
 import { agentVersion } from "./version.ts"
 import { disallowedPaths, matchesGlob } from "./scope.ts"
 
-// spec: openspec/changes/subagent-rating-plugin/specs/subagent-rating-capture/spec.md
+// spec: openspec/specs/subagent-rating-capture/spec.md
 describe("pass lineage exclusion", () => {
   const passSessions = new Set(["pass_root"])
 

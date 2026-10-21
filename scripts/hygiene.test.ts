@@ -2,7 +2,6 @@ import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import { findLeaks } from "./hygiene.ts"
 
-// spec: openspec/changes/subagent-rating-plugin/tasks.md (task 1.3)
 describe("hygiene check", () => {
   const ctx = { username: "alice", hostname: "box-42" }
   const home = ["", "home", "alice", "x"].join("/")

@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { buildPassRules, toWildcard, type PermissionRule } from "./rules.ts"
 
-// spec: openspec/changes/subagent-rating-plugin/specs/subagent-improvement-trigger/spec.md
+// spec: openspec/specs/subagent-improvement-trigger/spec.md
 
 /** Last-match-wins evaluation with the host's `*` → `.*` wildcard. */
 function decide(rules: readonly PermissionRule[], action: string, resource: string): string {

@@ -1,4 +1,4 @@
-// spec: openspec/changes/background-rating-solicitation/specs/subagent-rating-capture/spec.md
+// spec: openspec/specs/subagent-rating-capture/spec.md
 import assert from "node:assert/strict"
 import { beforeEach, describe, it } from "node:test"
 import { createChildProbe } from "./child-probe.ts"
