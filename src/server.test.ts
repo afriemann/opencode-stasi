@@ -44,7 +44,7 @@ describe("plugin wiring", () => {
       writeFileSync(configPath, JSON.stringify({ dbPath: join(dir, "data", "ratings.db") }))
       const { ctx, registered, hooks, agents } = fakeCtx({ configPath })
       const cleanup = await run(ctx)
-      assert.deepEqual(registered.sort(), ["parent_ratings", "rate_parent", "rate_subagent", "subagent_ratings", "subagent_tuning_resolve"])
+      assert.deepEqual(registered.sort(), ["correct_subagent_rating", "parent_ratings", "rate_parent", "rate_subagent", "subagent_ratings", "subagent_tuning_resolve"])
       assert.deepEqual(hooks.sort(), ["permission:evaluate", "session:context", "session:prompt", "tool:execute.after", "tool:execute.before"])
       assert.equal(agents["subagent-tuner"]?.["mode"], "primary")
       assert.equal(agents["subagent-tuner"]?.["hidden"], true)

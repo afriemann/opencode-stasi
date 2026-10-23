@@ -14,6 +14,7 @@ export interface CallInput {
   readonly agentId: string
   readonly agentVersion: string
   readonly createdAt: number
+  readonly taskDescription?: string
 }
 export interface CallRow extends CallInput {
   readonly status: "pending" | "rated" | "expired"
@@ -41,6 +42,16 @@ export interface PreflightInput {
 }
 export type PreflightResult = { readonly ok: true; readonly call: CallRow } | { readonly ok: false; readonly error: string }
 export type SubmitResult = { readonly ok: true } | { readonly ok: false; readonly error: string }
+export interface CorrectionInput {
+  readonly callId: string
+  readonly callerSessionId: string
+  readonly action: unknown
+  readonly score?: unknown
+  readonly comment?: unknown
+  readonly commentMax: number
+  readonly now: number
+}
+export type CorrectionResult = { readonly ok: true; readonly call: CallRow; readonly score: number } | { readonly ok: false; readonly error: string }
 
 export interface ParentCall {
   readonly callId: string
@@ -102,6 +113,7 @@ export interface Store {
   /** Checks that the call exists, belongs to the caller, is pending and unexpired; marks an expired call expired. Reserves nothing. */
   preflightRating(input: PreflightInput): PreflightResult
   submitRating(input: RatingInput): SubmitResult
+  correctRating(input: CorrectionInput): CorrectionResult
   /** Newest first. */
   recentRatings(agentId: string, limit: number): RatingRow[]
   getState(agentId: string): AgentState
@@ -231,8 +243,8 @@ function createStore(db: Driver): Store {
 
     recordCall: (c) => {
       db.run(
-        "INSERT OR IGNORE INTO calls (call_id, caller_session_id, caller_agent, child_session_id, agent_id, agent_version, status, created_at) VALUES (?,?,?,?,?,?,'pending',?)",
-        c.callId, c.callerSessionId, c.callerAgent, c.childSessionId, c.agentId, c.agentVersion, c.createdAt,
+        "INSERT OR IGNORE INTO calls (call_id, caller_session_id, caller_agent, child_session_id, agent_id, agent_version, status, created_at, task_description) VALUES (?,?,?,?,?,?,'pending',?,?)",
+        c.callId, c.callerSessionId, c.callerAgent, c.childSessionId, c.agentId, c.agentVersion, c.createdAt, c.taskDescription ?? null,
       )
     },
 
@@ -248,6 +260,7 @@ function createStore(db: Driver): Store {
         agentVersion: r["agent_version"] as string,
         createdAt: r["created_at"] as number,
         status: r["status"] as CallRow["status"],
+        ...(typeof r["task_description"] === "string" ? { taskDescription: r["task_description"] } : {}),
       }
     },
 
@@ -276,6 +289,36 @@ function createStore(db: Driver): Store {
         )
         db.run("UPDATE calls SET status = 'rated' WHERE call_id = ?", call.callId)
         return { ok: true }
+      })
+    },
+
+    correctRating(input) {
+      if (input.action !== "edit" && input.action !== "retract") return { ok: false, error: "action must be edit or retract" }
+      if (input.action === "edit") {
+        const invalid = validateRating({ score: input.score, comment: input.comment }, input.commentMax)
+        if (invalid) return { ok: false, error: invalid }
+      }
+      return db.transaction<CorrectionResult>(() => {
+        const call = this.getCall(input.callId)
+        if (!call || call.callerSessionId !== input.callerSessionId) return { ok: false, error: "call key is unavailable to this session; use its recorded [rate] key" }
+        const rating = db.get<{ id: number; score: number; comment: string; created_at: number; agent_id: string; agent_version: string }>(
+          "SELECT id, score, comment, created_at, agent_id, agent_version FROM ratings WHERE call_id = ?", call.callId,
+        )
+        if (call.status !== "rated" || !rating) return { ok: false, error: "call has no current rating to correct" }
+        const score = input.action === "edit" ? input.score as number : null
+        const comment = input.action === "edit" ? input.comment as string : null
+        if (input.action === "edit") {
+          db.run("UPDATE ratings SET score = ?, comment = ? WHERE id = ?", score, comment, rating.id)
+        } else {
+          db.run("DELETE FROM ratings WHERE id = ?", rating.id)
+          db.run("UPDATE calls SET status = 'pending' WHERE call_id = ?", call.callId)
+        }
+        db.run(`INSERT INTO rating_corrections
+          (call_id, actor_session_id, action, created_at, rating_id, agent_id, agent_version, rating_created_at, before_score, before_comment, after_score, after_comment)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          call.callId, input.callerSessionId, input.action as string, input.now, rating.id, rating.agent_id, rating.agent_version, rating.created_at,
+          rating.score, rating.comment, score, comment)
+        return { ok: true, call, score: score ?? rating.score }
       })
     },
 

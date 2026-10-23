@@ -52,6 +52,8 @@ describe("Rating request injection", () => {
     const event = subagentCompleted("call_1")
     await hook()(event)
     assert.match(text(event), /rate_subagent \{call:\\"call_1\\"/)
+    assert.match(text(event), /agent=.*explore/)
+    assert.match(text(event), /task=.*d/)
     assert.equal(event.status === "completed" && (event.result.content as unknown[]).length, 2)
     assert.deepEqual(store.getCall("call_1"), {
       callId: "call_1",
@@ -62,6 +64,7 @@ describe("Rating request injection", () => {
       agentVersion: agentVersion(explore),
       createdAt: 42,
       status: "pending",
+      taskDescription: "d",
     })
   })
 
@@ -87,6 +90,9 @@ describe("Rating request injection", () => {
     assert.match(text(event), /Never invent a call key/)
     assert.equal(store.getCall("call_bg")?.childSessionId, "ses_child")
     assert.equal(store.getCall("call_bg")?.status, "pending")
+    assert.match(text(event), /agent=.*explore/)
+    assert.match(text(event), /task=.*d/)
+    assert.equal(store.getCall("call_bg")?.taskDescription, "d")
   })
 
   it("Background call is not solicited", async () => {

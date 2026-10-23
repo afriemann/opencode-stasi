@@ -12,7 +12,7 @@ import { parentRatingsTool, rateParentTool } from "./host/parent-tools.ts"
 import { asHostPort } from "./host/port.ts"
 import { createReminder } from "./host/reminder.ts"
 import { subagentTuningResolveTool } from "./host/resolve.ts"
-import { rateSubagentTool, registerTools, subagentRatingsTool } from "./host/tools.ts"
+import { correctSubagentRatingTool, rateSubagentTool, registerTools, subagentRatingsTool } from "./host/tools.ts"
 import { createContainment, type ContextEvent, type PermissionEvent } from "./pass/containment.ts"
 import { BUILTIN_TUNER_ID, createPassRunner } from "./pass/runner.ts"
 import { registerBuiltinTuner } from "./pass/tuner.ts"
@@ -89,6 +89,7 @@ export default Plugin.define({
       rateParentTool(parentDeps),
       parentRatingsTool(parentDeps),
       rateSubagentTool(toolDeps),
+      correctSubagentRatingTool({ store, config, now }),
       subagentRatingsTool(toolDeps),
       subagentTuningResolveTool({ store, config, git, now, isRootOutsidePass }),
     ])
@@ -117,7 +118,7 @@ export default Plugin.define({
     const stop = new AbortController()
     void passHost.watchEvents(stop.signal)
     startPasses()
-    info(`ready: tools rate_parent, parent_ratings, rate_subagent, subagent_ratings, subagent_tuning_resolve registered; tuner ${config.pass.agent ?? BUILTIN_TUNER_ID}`)
+    info(`ready: tools rate_parent, parent_ratings, rate_subagent, correct_subagent_rating, subagent_ratings, subagent_tuning_resolve registered; tuner ${config.pass.agent ?? BUILTIN_TUNER_ID}`)
 
     return () => {
       info("unloading")
