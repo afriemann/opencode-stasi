@@ -9,7 +9,7 @@ import { parseConfig, type Config } from "../core/config.ts"
 import { openStore, type Store } from "../store/repo.ts"
 import { createChildProbe, type ChildProbe } from "./child-probe.ts"
 import { createFakeHost, type FakeHost } from "./testing/fake-host.ts"
-import { rateSubagentTool, registerTools, subagentRatingsTool, UNTRUSTED_WARNING } from "./tools.ts"
+import { correctSubagentRatingTool, rateSubagentTool, registerTools, subagentRatingsTool, UNTRUSTED_WARNING } from "./tools.ts"
 
 let dir: string
 let store: Store
@@ -112,6 +112,103 @@ describe("rate_subagent stores a validated rating", () => {
   })
 })
 
+describe("Rating corrections", () => {
+  const correct = () => {
+    return correctSubagentRatingTool(deps())
+  }
+  const rate = (id: string, score = 4) => rateSubagentTool(deps()).execute({ call: id, score, comment: "original" }, ctx)
+
+  it("Accepted feedback identifies its target", async () => {
+    for (const taskDescription of [undefined, 'Review "the diff"']) {
+      const id = taskDescription === undefined ? "legacy" : "labelled"
+      store.recordCall({ callId: id, callerSessionId: ctx.sessionID, callerAgent: "build", childSessionId: "c", agentId: "explore", agentVersion: "v1", createdAt: now, ...(taskDescription === undefined ? {} : { taskDescription }) })
+      const res = await rate(id)
+      assert.match(res.content, new RegExp(`call="${id}"`))
+      assert.match(res.content, /agent="explore"/)
+      assert.match(res.content, /score=4/)
+      if (taskDescription !== undefined) assert.ok(res.content.includes(`task=${JSON.stringify(taskDescription)}`))
+      const edit = await correct().execute({ call: id, action: "edit", score: 5, comment: "corrected" }, ctx)
+      assert.ok(edit.content.includes(`call="${id}"`))
+      assert.match(edit.content, /agent="explore".*score=5/)
+      const retract = await correct().execute({ call: id, action: "retract" }, ctx)
+      assert.ok(retract.content.includes(`call="${id}"`))
+      assert.match(retract.content, /retracted.*agent="explore"/i)
+      assert.doesNotMatch(retract.content, /score=/)
+    }
+  })
+
+  it("Owner retracts and can rate again under original admission rules", async () => {
+    const tool = correct()
+    for (const late of [false, true]) {
+      const id = late ? "late" : "recent"
+      addCall(id)
+      await rate(id)
+      const captured = store.getCall(id)!.createdAt
+      if (late) now += 25 * 3_600_000
+      const probesBefore = host.waitCalls.length
+      await tool.execute({ call: id, action: "retract" }, ctx)
+      assert.equal(host.waitCalls.length, probesBefore, "correction must not probe")
+      assert.equal(store.getCall(id)?.createdAt, captured)
+      assert.equal(store.getCall(id)?.status, "pending")
+      if (late) await assert.rejects(rate(id), /expired/)
+      else {
+        delete host.sessions["c"]
+        await assert.rejects(rate(id), /cannot determine/i)
+        host.sessions["c"] = { id: "c", time: { idle: 1 } }
+        await rate(id)
+        assert.equal(store.getCall(id)?.status, "rated")
+      }
+    }
+  })
+
+  it("Corrections leave tuning decisions untouched", async () => {
+    const tool = correct()
+    const passId = store.startPass({ agentId: "explore", agentVersion: "v1", tunerId: "t", tunerVersion: "tv", now })!
+    store.finishPass(passId, { status: "committed", branch: "tuning/explore", now })
+    for (const status of ["ok", "tripped", "awaiting_review", "resolved"] as const) {
+      addCall(status)
+      await rate(status)
+      store.saveState("explore", { status, trippedVersion: "v1", lastResolvedAt: now, cooldownUntil: now + 100 })
+      const before = store.getState("explore")
+      const pass = store.getPass(passId)
+      await tool.execute({ call: status, action: "edit", score: 1, comment: "corrected" }, ctx)
+      await tool.execute({ call: status, action: "retract" }, ctx)
+      assert.deepEqual(store.getState("explore"), before)
+      assert.deepEqual(store.getPass(passId), pass)
+      assert.deepEqual(tripped, [])
+    }
+    addCall("next")
+    await rateSubagentTool(deps(config({ minSamples: 1 }))).execute({ call: "next", score: 1, comment: "bad" }, ctx)
+    // The saved cooldown still applies. A later ordinary submission evaluates normally.
+    now += 101
+    addCall("later")
+    await rateSubagentTool(deps(config({ minSamples: 1 }))).execute({ call: "later", score: 1, comment: "bad" }, ctx)
+    assert.deepEqual(tripped, ["explore"])
+  })
+
+  it("Invalid corrections cannot mutate or disclose feedback", async () => {
+    const tool = correct()
+    addCall("c1")
+    await rate("c1")
+    for (const input of [
+      { action: "edit", score: 3, comment: "valid" }, { call: "unknown", action: "retract" },
+      { call: "c1", action: "move" }, { call: "c1", action: "edit", score: 0, comment: "valid" },
+      { call: "c1", action: "edit", score: 3 },
+    ]) await assert.rejects(tool.execute(input, ctx))
+    let unknownMessage = ""
+    await assert.rejects(tool.execute({ call: "unknown", action: "retract" }, ctx), (error: Error) => {
+      unknownMessage = error.message
+      return true
+    })
+    await assert.rejects(tool.execute({ call: "c1", action: "retract" }, { ...ctx, sessionID: "foreign" }), (error: Error) => {
+      assert.equal(error.message, unknownMessage)
+      assert.doesNotMatch(error.message, /explore|original|score=/)
+      return true
+    })
+    assert.equal(store.recentRatings("explore", 1)[0]?.score, 4)
+  })
+})
+
 describe("Rating requires a finished child", () => {
   const rate = (id = "c1") => rateSubagentTool(deps()).execute({ call: id, score: 4, comment: "good" }, ctx)
 
@@ -207,6 +304,24 @@ describe("Evidence query tool", () => {
     const res = (await subagentRatingsTool(deps(cfg)).execute(input, ctx)).content
     return JSON.parse(res.slice(res.indexOf("{")))
   }
+
+  it("Corrected evidence excludes retracted votes and audit history", async () => {
+    record("older", 1, "explore", "old")
+    record("edit", 2)
+    store.saveState("explore", { status: "resolved", lastResolvedAt: now, cooldownUntil: 0 })
+    record("retract", 1)
+    record("keep", 5)
+    const tool = correctSubagentRatingTool(deps())
+    await tool.execute({ call: "edit", action: "edit", score: 4, comment: "edited" }, ctx)
+    await tool.execute({ call: "retract", action: "retract" }, ctx)
+    const detail = await query({ agent: "explore" })
+    assert.equal(detail.window.n, 1)
+    assert.equal(detail.window.mean, 5)
+    assert.deepEqual(detail.lifetime, { n: 3, mean: 10 / 3 })
+    assert.deepEqual(detail.ratings.map((row: { untrusted_comment: string }) => row.untrusted_comment), ["evidence", "edited", "evidence"])
+    assert.deepEqual((await query()).agents[0].lifetime, detail.lifetime)
+    assert.doesNotMatch(JSON.stringify(detail), /taskDescription|rating_corrections|before_score/)
+  })
 
   it("Overview without agent", async () => {
     await rate("a", 4, "fine")

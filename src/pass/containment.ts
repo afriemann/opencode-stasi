@@ -1,5 +1,5 @@
 /** Tools a pass session must never have, even when listed in `pass.tools`. */
-export const NEVER_IN_PASS: ReadonlySet<string> = new Set(["rate_subagent", "subagent_tuning_resolve", "rate_parent", "parent_ratings"])
+export const NEVER_IN_PASS: ReadonlySet<string> = new Set(["rate_subagent", "correct_subagent_rating", "subagent_tuning_resolve", "rate_parent", "parent_ratings"])
 
 export interface ContainmentDeps {
   readonly inPassLineage: (sessionId: string) => Promise<boolean>

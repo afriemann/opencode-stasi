@@ -14,6 +14,20 @@ describe("rating request line", () => {
     assert.match(line, /rate_subagent/)
     assert.match(line, /brief/)
   })
+
+  it("Untrusted task descriptions remain single-line labels", () => {
+    for (const description of ["one\n\r\t\u0000two \"quoted\" \\ text", "x".repeat(300)]) {
+      const line = ratingRequestLine("call_safe", "reviewer", description)
+      assert.match(line, /agent="reviewer"/)
+      const label = /task=("(?:\\.|[^"\\])*")/.exec(line)?.[1]
+      assert.ok(label, "task description must be JSON-escaped data")
+      const value = JSON.parse(label)
+      assert.ok(value.length <= 200)
+      assert.doesNotMatch(value, /[\u0000-\u001f\u007f-\u009f]/)
+      assert.equal(line.split("\n").length, 1)
+      assert.equal((line.match(/\[rate\]/g) ?? []).length, 1)
+    }
+  })
 })
 
 describe("rate_subagent input validation", () => {

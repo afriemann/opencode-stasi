@@ -1,5 +1,6 @@
 import type { Config } from "../core/config.ts"
 import { windowStats } from "../core/stats.ts"
+import { ratingTarget } from "../core/rubric.ts"
 import { validateRating } from "../core/validate.ts"
 import { evaluateAgent } from "../evaluate.ts"
 import type { Store } from "../store/repo.ts"
@@ -38,7 +39,7 @@ export function rateSubagentTool(deps: ToolDeps): ToolDefinition {
       "Rate a finished subagent call. Use it once per call, passing the call key from a [rate] line: either on a finished foreground result, or on the launch result of a background subagent, rated only after you have read its eventual result or failure report. " +
       "Never invent a call key or use a session id; a rating for a subagent that is still running is rejected, so retry after it finishes. " +
       `Score 1-5 (1 unusable/redo, 2 major rework, 3 usable with fixes, 4 good and used as-is, 5 excellent) and a short comment (max ${config.commentMaxChars} chars) ` +
-      "saying what was good or lacking. Judge the result against your brief only. Returns a confirmation or an error explaining why the rating was rejected.",
+      "saying what was good or lacking. Judge the result against your brief only. Returns the recorded target and score, or a rejection error. Use correct_subagent_rating to edit or retract a mistaken rating from this session.",
     input: {
       type: "object",
       properties: {
@@ -70,14 +71,47 @@ export function rateSubagentTool(deps: ToolDeps): ToolDefinition {
         now,
       })
       if (!result.ok) throw new Error(result.error)
-      const call = store.getCall(input.call)
-      if (!call) return text("Rating recorded.")
+      const call = checked.call
       deps.info?.(`rating recorded: ${call.agentId} scored ${input.score as number}`)
       if (evaluateAgent(store, config, call.agentId, call.agentVersion, now).newlyTripped) {
         deps.info?.(`agent ${call.agentId} tripped the quality threshold`)
         deps.onTripped(call.agentId)
       }
-      return text("Rating recorded.")
+      return text(`Rating recorded: ${ratingTarget(call.callId, call.agentId, call.taskDescription)} score=${input.score as number}.`)
+    },
+  }
+}
+
+export function correctSubagentRatingTool(deps: Pick<ToolDeps, "store" | "config" | "now">): ToolDefinition {
+  return {
+    name: "correct_subagent_rating",
+    description:
+      "Correct a current rating made by this session, using its recorded call key from the [rate] line. Never invent a call key or use a session id. " +
+      `Use action edit with both a replacement score (integer 1-5) and comment (non-empty, max ${deps.config.commentMaxChars} chars), or action retract to remove the vote. ` +
+      "Returns the target and replacement score for edit, or confirms retraction; rejects invalid requests with an error. Corrections do not trigger, undo or change tuning passes or agent state. " +
+      "To fix a wrong-call rating, retract it then rate the correct call normally. A retracted call can be rated again only under its original capture-time TTL and child-completion checks; old calls may already be expired.",
+    input: {
+      type: "object",
+      properties: {
+        call: { type: "string", description: "Recorded call key of the current rating to correct." },
+        action: { type: "string", enum: ["edit", "retract"] },
+        score: { type: "integer", minimum: 1, maximum: 5, description: "Required for edit." },
+        comment: { type: "string", description: `Required for edit; at most ${deps.config.commentMaxChars} characters.` },
+      },
+      required: ["call", "action"],
+    },
+    options: { codemode: false },
+    async execute(input: { call?: unknown; action?: unknown; score?: unknown; comment?: unknown }, context) {
+      if (typeof input.call !== "string") throw new Error("call must be the recorded call key from the [rate] line")
+      const result = deps.store.correctRating({
+        callId: input.call, callerSessionId: context.sessionID, action: input.action, score: input.score, comment: input.comment,
+        commentMax: deps.config.commentMaxChars, now: deps.now(),
+      })
+      if (!result.ok) throw new Error(result.error)
+      const { call } = result
+      const action = input.action === "edit" ? "edited" : "retracted"
+      const score = input.action === "edit" ? ` score=${result.score}` : ""
+      return text(`Rating ${action}: ${ratingTarget(call.callId, call.agentId, call.taskDescription)}${score}. Tuning state and passes unchanged.`)
     },
   }
 }
@@ -88,7 +122,7 @@ export function subagentRatingsTool(deps: ToolDeps): ToolDefinition {
     name: "subagent_ratings",
     description:
       "Read-only evidence about subagent quality. Both modes return window.n/mean and lifetime.n/mean: vote count and average score (1-5). Empty populations have n: 0 and no mean. " +
-      `The window uses the newest ${SCAN_LIMIT} ratings, filtered to the newest rated definition version and after the last resolution, then limited to the configured window size; lifetime includes all stored ratings across versions and resolutions and does not affect tuning. ` +
+      `The window uses the newest ${SCAN_LIMIT} current ratings, filtered to the newest rated definition version and after the last resolution, then limited to the configured window size; lifetime includes all current ratings across versions and resolutions and does not affect tuning. Retracted votes and correction history are excluded. ` +
       "Without `agent`: summaries and state of every rated or state-recorded type (ok, tripped, awaiting_review, resolved) and, for open ones, the improvement pass status, branch and worktree. " +
       `With \`agent\`: also window median, share of ratings at or below 2, definition version, threshold and up to \`limit\` (max ${MAX_LIST}, default ${DEFAULT_LIST}) recent ratings with their comments. The list limit does not affect summaries. ` +
       "Reads full stored history per requested agent; query time and memory grow with history size. " +

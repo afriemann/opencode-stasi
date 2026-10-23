@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, it } from "node:test"
 import { openStore, type Store } from "./repo.ts"
+import { openDriver } from "./driver.ts"
 
 const DAY = 86_400_000
 let dir: string
@@ -142,6 +143,106 @@ describe("rating submission", () => {
       store.submitRating({ callId: id, callerSessionId: "ses_caller", score: 3, comment: id, commentMax: 500, pendingTtlMs: DAY, now: 10 + i })
     }
     assert.deepEqual(store.recentRatings("explore", 2).map((r) => r.comment), ["c", "b"])
+  })
+})
+
+describe("Session-owned rating corrections", () => {
+  const vote = (id = "c1", now = 2000, version = "v1") => {
+    store.recordCall({ ...call(id), agentVersion: version })
+    assert.equal(store.submitRating({ callId: id, callerSessionId: "ses_caller", score: 2, comment: id, commentMax: 500, pendingTtlMs: DAY, now }).ok, true)
+  }
+  const correction = (over = {}) => ({ callId: "c1", callerSessionId: "ses_caller", action: "edit", score: 5, comment: "corrected", commentMax: 500, now: DAY * 2, ...over })
+
+  it("Owner edits a rating without changing its identity or age", async () => {
+    assert.equal(typeof store.correctRating, "function", "store must support corrections")
+    vote()
+    vote("c2", 2000, "v2")
+    store.saveState("explore", { status: "resolved", lastResolvedAt: 3000, cooldownUntil: DAY * 3 })
+    const db = await openDriver(join(dir, "data", "ratings.db"))
+    try {
+      const before = db.get<Record<string, unknown>>("SELECT * FROM ratings WHERE call_id = 'c1'")!
+      assert.equal(store.correctRating(correction()).ok, true)
+      const after = db.get<Record<string, unknown>>("SELECT * FROM ratings WHERE call_id = 'c1'")!
+      assert.deepEqual({ ...after }, { ...before, score: 5, comment: "corrected" })
+      assert.deepEqual(store.recentRatings("explore", 10).map(row => row.comment), ["c2", "corrected"])
+      assert.equal(store.getCall("c1")?.status, "rated")
+    } finally { db.close() }
+  })
+
+  it("Invalid corrections cannot mutate or disclose feedback", () => {
+    assert.equal(typeof store.correctRating, "function", "store must support corrections")
+    vote()
+    store.recordCall(call("pending"))
+    const before = store.recentRatings("explore", 10)
+    for (const over of [
+      { callId: "unknown" }, { callerSessionId: "foreign" }, { callId: "pending" }, { action: "move" },
+      { score: 0 }, { score: 6 }, { score: 2.5 }, { score: undefined }, { comment: undefined },
+      { comment: "  " }, { comment: "x".repeat(501) },
+    ]) {
+      const result = store.correctRating(correction(over))
+      assert.equal(result.ok, false)
+      assert.deepEqual(store.recentRatings("explore", 10), before)
+      if (!result.ok) assert.doesNotMatch(result.error, /corrected|ses_child/)
+    }
+  })
+
+  it("Corrections retain history across reopen", async () => {
+    assert.equal(typeof store.correctRating, "function", "store must support corrections")
+    vote()
+    const path = join(dir, "data", "ratings.db")
+    store.close()
+    const legacy = await openDriver(path)
+    legacy.exec("DROP TABLE IF EXISTS rating_corrections; ALTER TABLE calls DROP COLUMN task_description; PRAGMA user_version = 2")
+    legacy.close()
+    store = await openStore(path)
+    assert.equal(store.getCall("c1")?.taskDescription, undefined)
+    assert.equal(store.correctRating(correction()).ok, true)
+    assert.equal(store.correctRating(correction({ action: "retract", now: DAY * 3 })).ok, true)
+    store.close()
+    store = await openStore(path)
+    assert.deepEqual(store.recentRatings("explore", 10), [])
+    assert.equal(store.getCall("c1")?.status, "pending")
+    const db = await openDriver(path)
+    try {
+      const history = db.all<Record<string, unknown>>("SELECT * FROM rating_corrections ORDER BY id")
+      assert.equal(history.length, 2)
+      assert.deepEqual(history.map(row => [row.action, row.before_score, row.before_comment, row.after_score, row.after_comment]), [
+        ["edit", 2, "c1", 5, "corrected"], ["retract", 5, "corrected", null, null],
+      ])
+      for (const row of history) {
+        assert.equal(row.call_id, "c1")
+        assert.equal(row.actor_session_id, "ses_caller")
+        assert.equal(row.agent_id, "explore")
+        assert.equal(row.agent_version, "v1")
+        assert.equal(row.rating_created_at, 2000)
+      }
+    } finally { db.close() }
+  })
+
+  it("Failed and competing corrections preserve one current vote", async () => {
+    assert.equal(typeof store.correctRating, "function", "store must support corrections")
+    vote()
+    const path = join(dir, "data", "ratings.db")
+    const db = await openDriver(path)
+    const other = await openStore(path)
+    try {
+      db.exec("CREATE TRIGGER reject_correction BEFORE INSERT ON rating_corrections BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END")
+      for (const action of ["edit", "retract"]) {
+        assert.throws(() => store.correctRating(correction({ action })), /audit unavailable/)
+        assert.equal(store.getCall("c1")?.status, "rated")
+        assert.equal(store.recentRatings("explore", 1)[0]?.score, 2)
+        assert.equal(db.all("SELECT * FROM rating_corrections").length, 0)
+      }
+      db.exec("DROP TRIGGER reject_correction")
+      assert.equal(store.correctRating(correction()).ok, true)
+      assert.equal(other.correctRating(correction({ action: "retract" })).ok, true)
+      assert.equal(store.correctRating(correction({ action: "retract" })).ok, false)
+      const input = { callId: "c1", callerSessionId: "ses_caller", score: 4, comment: "new vote", commentMax: 500, pendingTtlMs: DAY, now: 3000 }
+      assert.equal(other.submitRating(input).ok, true)
+      assert.equal(store.submitRating(input).ok, false)
+      assert.equal(store.recentRatings("explore", 10).length, 1)
+      assert.equal(db.all("SELECT * FROM rating_corrections").length, 2)
+    } finally { other.close(); db.close() }
   })
 })
 

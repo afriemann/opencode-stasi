@@ -1,6 +1,6 @@
 import { agentVersion } from "../core/version.ts"
 import { isSampled } from "../core/sampling.ts"
-import { deferredRatingRequestLine, ratingRequestLine } from "../core/rubric.ts"
+import { deferredRatingRequestLine, normalizeTaskDescription, ratingRequestLine } from "../core/rubric.ts"
 import type { Config } from "../core/config.ts"
 import type { Store } from "../store/repo.ts"
 import type { HostPort, ToolAfterEvent, ToolResult } from "./port.ts"
@@ -52,6 +52,7 @@ export function createCaptureHook(deps: CaptureDeps): (event: ToolAfterEvent) =>
       if (!hasContent(event.result)) return
 
       const { data } = await deps.port.agent.get({ agentID: requested as never })
+      const taskDescription = normalizeTaskDescription(input?.["description"])
       deps.store.recordCall({
         callId: event.id,
         callerSessionId: event.sessionID,
@@ -60,8 +61,9 @@ export function createCaptureHook(deps: CaptureDeps): (event: ToolAfterEvent) =>
         agentId: data.id,
         agentVersion: agentVersion(data),
         createdAt: deps.now(),
+        ...(taskDescription === undefined ? {} : { taskDescription }),
       })
-      appendLine(event.result, line(event.id))
+      appendLine(event.result, line(event.id, data.id, taskDescription))
       deps.info?.(`rating requested: call ${event.id} to ${data.id}`)
     } catch (error) {
       deps.log("capture hook failed", error)

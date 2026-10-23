@@ -81,6 +81,24 @@ const MIGRATIONS: readonly string[] = [
   CREATE INDEX parent_votes_recent ON parent_votes(created_at DESC, id DESC);
   CREATE INDEX parent_calls_agent ON parent_calls(parent_agent);
   `,
+  `
+  ALTER TABLE calls ADD COLUMN task_description TEXT;
+  CREATE TABLE rating_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    call_id TEXT NOT NULL REFERENCES calls(call_id),
+    actor_session_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('edit','retract')),
+    created_at INTEGER NOT NULL,
+    rating_id INTEGER NOT NULL,
+    agent_id TEXT NOT NULL,
+    agent_version TEXT NOT NULL,
+    rating_created_at INTEGER NOT NULL,
+    before_score INTEGER NOT NULL,
+    before_comment TEXT NOT NULL,
+    after_score INTEGER,
+    after_comment TEXT
+  );
+  `,
 ]
 
 export function migrate(db: Driver): void {

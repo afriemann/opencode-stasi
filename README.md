@@ -32,6 +32,7 @@ Create the configuration file (see below). Without `agentConfigRepo` the plugin 
 | Tool | Purpose |
 |---|---|
 | `rate_subagent` `{call, score, comment}` | Called by the agent that made the subagent call. One rating per call, only from the calling session, only while the call is pending (`pendingTtlHours`). |
+| `correct_subagent_rating` `{call, action, score?, comment?}` | Edits or retracts a current rating made by this session. `edit` requires both replacement score and comment; `retract` removes the vote. Returns the stored target and replacement score for edits, or confirms retraction. Never triggers or changes tuning passes or agent state. |
 | `rate_parent` `{call, score, comment}` | Called by a child using the key in its `[rate-parent]` request. Rates the initial delegation brief, not the result. One integer score 1–5 per request, only from the bound child, before expiry. |
 | `parent_ratings` `{agent?, limit?}` | Read-only, database-wide upward feedback. Returns `summaries` (`agent`, `n`, `mean`) and newest `ratings` (`agent`, `score`, `comment`, `createdAt`) with a fixed untrusted-data warning. Optional `agent` filters parent agent type; comment limit defaults to 10 and is clamped to 1–50. No reader-role restriction outside tuning passes. |
 | `subagent_ratings` `{agent?, limit?}` | Read-only evidence. Both modes include current-window and lifetime average scores and vote counts. Without `agent`: summaries, state and any open pass for each type. With `agent`: additional window statistics and up to `limit` recent ratings (default 10, maximum 50) with comments. Comments are returned inside an `untrusted_comment` field after a fixed warning, because they are text written by other agents. |
@@ -39,11 +40,27 @@ Create the configuration file (see below). Without `agentConfigRepo` the plugin 
 
 Rating summaries use the same field names in overview and detail:
 
-- `window.n` and `window.mean`: vote count and arithmetic average score (1–5) for the current window. From the newest 500 stored ratings, keep those for the newest rated definition version and strictly after the last resolution, then take the newest `windowSize` eligible ratings. This preserves the tuning window's scan boundary.
-- `lifetime.n` and `lifetime.mean`: count and average across **all stored ratings for that agent**, including older definition versions and ratings before resolutions. Lifetime statistics are informational and never affect tuning decisions.
+- `window.n` and `window.mean`: vote count and arithmetic average score (1–5) for the current window. From the newest 500 current ratings, keep those for the newest rated definition version and strictly after the last resolution, then take the newest `windowSize` eligible ratings. This preserves the tuning window's scan boundary.
+- `lifetime.n` and `lifetime.mean`: count and average across **all current ratings for that agent**, including older definition versions and ratings before resolutions. Lifetime statistics are informational and never affect tuning decisions. Both summaries exclude retracted votes and correction history.
 - Empty populations have `n: 0` with the `mean` key omitted, not a zero score. Agents with only a state record remain in the overview; an unknown agent queried in detail has empty summaries and no ratings.
 
 The detail list limit does not affect either summary. Lifetime reporting reads the full stored history for each requested agent (all listed agents in overview), so query time and memory grow with history size.
+
+### Recognizing and correcting a rating
+
+Each foreground or background `[rate]` line identifies the call key, resolved subagent type and short task description. The description is bounded, single-line quoted data, not an instruction or an authorization field. Submissions and edits confirm the stored target and score; retractions confirm the target and removal. Calls captured before task labels were available still work, using their call key and agent type.
+
+To change feedback for the same call:
+
+```json
+{"call": "call_from_rate_line", "action": "edit", "score": 4, "comment": "Useful result; the missing detail was in my brief."}
+```
+
+Pass this object to `correct_subagent_rating`. To undo a wrong-call vote, use `{"call": "wrong_call_key", "action": "retract"}`, then use `rate_subagent` on the correct call. Never guess a key or substitute a session ID.
+
+Only the session that made the original call can correct its current rating. Corrections have no age limit: an edit keeps the rating's original time, ordering and definition version. A retraction makes the call pending again but does **not** reset its capture-time `pendingTtlHours`; an old call can already be expired. Rerating still requires a finished child and otherwise follows the ordinary submission rules, including threshold evaluation.
+
+Corrections change current evidence only, not existing tuning decisions, cooldowns or pass branches. A trip or open pass can therefore remain even if corrected evidence no longer crosses the threshold. Local correction history retains old and replacement feedback in the private database but is not exposed by `subagent_ratings`. Tuning-pass sessions cannot correct ratings.
 
 ### Parent brief feedback
 
