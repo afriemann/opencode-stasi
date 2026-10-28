@@ -20,8 +20,8 @@
     "test:bun": "bun test src scripts"
   },
   "devDependencies": {
-    "@opencode/plugin": "^2.0.24",
-    "@types/node": "^26.6.3",
+    "@opencode/plugin": "^2.1.4",
+    "@types/node": "^26.6.5",
     "typescript": "^7.0.2"
   }
 }
